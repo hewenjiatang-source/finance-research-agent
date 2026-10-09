@@ -64,13 +64,37 @@ python scripts/run_finance_eval.py --cases ... --reports outputs/finance_eval   
 3. **Meta-evaluation**: known errors (9 types) are injected into clean synthetic reports built from gold; the evaluator's detection rate, error-type accuracy and false-positive rate are reported.
 4. **Optional LLM judge** (`--judge`): checks entailment of non-numeric claims only; cached; kept out of the hard metrics because of self-preference bias (use a different/stronger model than the one under test).
 
-## Verification status (please read)
+## Real-run results (Apple, Microsoft, JPMorgan — latest 10-K, Claude as the model)
 
-- **Verified offline** (`python -m unittest tests.test_claude_policy tests.test_finance_tools tests.test_finance_e2e tests.test_finance_eval`, 73 tests): Claude message/tool conversion, XBRL period selection, SEC tools, evidence ledger, the whole pipeline with a scripted fake model and synthetic SEC fixtures, every evaluation layer, and the meta-evaluation.
-- **Not verified**: real Anthropic API calls, live EDGAR access, LLM-judge quality. The development environment had no API key and no access to data.sec.gov. The fixture company "Acme Corp" is fictional. Spot-check one or two real companies by hand before trusting aggregate numbers.
-- **Meta-evaluation caveats**: injected errors are synthetic and the report phrasing is regular, so detection rates are an upper bound. On "dropped citation" detection is only ~50% because comma-joined clauses can share one citation.
-- The number → (metric, period) mapping is heuristic; unmappable numbers are counted as "unmapped", never as "correct". MD&A segment data, non-GAAP measures, guidance and dates are not auto-checked yet. HK/A-share filings go through web search and have no structured gold.
-- The gold is built with the same `select_period` code as the agent's tool, so it proves the agent copied structured data faithfully, not that the extraction logic is right; that is covered separately by a hand-checked `truth.json` regression test.
+One run per company (FY2024 10-K; `outputs/real_eval/`), evaluated with `evaluation/finance/`. **Small sample (3 reports, 197 numeric claims); read the numbers as a smoke test, not a benchmark.**
+
+| | Apple | Microsoft | JPMorgan | Total |
+|---|---|---|---|---|
+| Numeric claims | 75 | 79 | 43 | 197 |
+| Cited, and the cited source contains the number (`supported`) | 37 | 74 | 39 | **150 / 156 cited = 96.2%** |
+| Cited but source lacks it (`misattributed` + `unsupported`) | 1 | 3 | 2 | 6 |
+| Share of numbers carrying a citation | 51% | 97% | 95% | 79.2% |
+| Uncited, not in any evidence (`uncited_ungrounded`) | 1 | 0 | 0 | 1 of 41 uncited = 2.4% |
+
+**Data accuracy.** 70 numbers were mapped automatically to an XBRL gold value (revenue, net income, EPS, gross/operating profit, cash flow, total assets ...); **all 70 match the filing at the precision the report wrote**. The other 127 are not auto-checked: segment figures, non-GAAP numbers, percentages derived by the agent, and numbers whose (metric, period) the evaluator will not guess. I also checked 12 headline figures by hand against the 10-K: Apple net sales 391,035 / net income 93,736 / operating income 123,216 / gross profit 180,683 / diluted EPS 6.08 ($M); Microsoft revenue 245,122 / operating income 109,433 / net income 88,136; JPMorgan revenue 177,556 / net income 58,471 / diluted EPS 19.75 / total assets 4,002,814 — all correct.
+
+**What went wrong** (this is the useful part):
+- *The evaluator was the weakest link, not the agent.* The first real-data pass reported 42.6% accuracy; every "error" I traced was an evaluator mapping bug (wrong period for "A in FY2024, against B in FY2023", a prior-year figure bound to the current year, a Unicode minus sign, segment revenue mapped to total revenue, percent changes mapped to the wrong base). They are fixed, with regression tests built from the real sentences, and the evaluator now prefers "unmapped" to guessing. The 70/70 above is therefore partly a statement about what the evaluator is willing to judge.
+- *Tool bug found by the real run:* the XBRL evidence text rounded per-share values to an integer (`value 20 USD/shares (19.75 ...)`), which can make a faithful EPS look unsupported. Fixed in `src/finance/evidence.py`.
+- *Citation errors (6):* the agent cited an XBRL item for a growth rate it had computed itself, and cited `[1]` (an FY2025 filing index) for FY2024 figures. Derived values (growth rates, margins computed with the calculator) usually have no evidence id of their own, so they cannot be traced to a source.
+- *Agent behavior:* with no search key the web-search tool failed and the agent fell back to SEC tools only; some calculator calls failed; there is no independent second source for a figure, and the Red/Blue adversarial loop was off.
+
+## Known limitations
+
+- Three large US filers, one run each — no variance estimate, no small-cap, no restatement or non-calendar-year edge cases beyond Apple/Microsoft fiscal years. HK/A-share filings go through web search and have no structured gold.
+- Number → (metric, period) mapping is heuristic. MD&A segment data, non-GAAP measures, guidance and dates are not auto-checked; the share of mapped numbers (35–60% depending on how much of the XBRL gold is available) is the real coverage limit of the accuracy metric.
+- The gold is built with the same `select_period` code as the agent's tool, so it proves the agent copied structured data faithfully, not that the extraction logic is right; a hand-checked `truth.json` regression test covers that separately.
+- Meta-evaluation uses synthetic reports with regular phrasing, so its detection rates are an upper bound (e.g. "dropped citation" detection is ~50% because comma-joined clauses can share a citation).
+- The optional LLM judge (`--judge`) was not exercised on real data.
+
+## Test status
+
+`python -m unittest tests.test_claude_policy tests.test_finance_tools tests.test_finance_e2e tests.test_finance_eval` (78 tests, offline): Claude message/tool conversion, XBRL period selection, SEC tools, evidence ledger, the whole pipeline with a scripted fake model and synthetic SEC fixtures (fictional "Acme Corp"), every evaluation layer, the meta-evaluation (zero false positives on clean reports, mapping rate ≥ 0.9), and regression tests from real report sentences.
 
 ## Repository layout (new parts)
 

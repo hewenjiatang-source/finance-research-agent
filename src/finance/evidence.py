@@ -37,6 +37,12 @@ _POSITIONAL = {
 }
 
 
+def _raw(v) -> str:
+    """Full-precision raw value; per-share values must not be rounded to an integer."""
+    v = float(v)
+    return f"{v:.0f}" if v.is_integer() else f"{v:.6g}"
+
+
 @dataclass
 class Evidence:
     id: int
@@ -132,7 +138,7 @@ def _render_facts(res: dict) -> str:
         lines.append(
             f"{f.get('metric')} ({f.get('concept')}) | {f.get('period_label')} | "
             f"period {f.get('start') or 'instant'}..{f.get('end')} | "
-            f"value {f.get('value'):.0f} {f.get('unit')} ({f.get('display')}) | "
+            f"value {_raw(f.get('value'))} {f.get('unit')} ({f.get('display')}) | "
             f"{f.get('form')} filed {f.get('filed')} | accn {f.get('accn')}"
             if isinstance(f.get("value"), (int, float))
             else json.dumps(f, ensure_ascii=False)

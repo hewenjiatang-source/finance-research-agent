@@ -220,6 +220,43 @@ class TestSuite(unittest.TestCase):
                     SecClient(user_agent="T t@example.com", fetcher=fetcher, min_interval=0))
         self.assertEqual([c["id"] for c in out], ["a"])
 
+class RealSentenceRegressions(unittest.TestCase):
+    """Sentences taken from real agent reports (Apple FY2024 10-K), which once produced false 'errors'."""
+
+    @staticmethod
+    def _gold():
+        from evaluation.finance.gold import Gold
+        return Gold(company="Apple Inc.", aliases=["Apple", "AAPL"], periods={
+            "FY2024": {"revenue": 391.035e9, "gross_profit": 180.683e9, "eps_diluted": 6.08},
+            "FY2023": {"revenue": 383.285e9, "gross_profit": 169.148e9, "eps_diluted": 6.13},
+        })
+
+    def _run(self, text):
+        recs = []
+        for u in parse_report(text):
+            recs += check_accuracy(u.mentions, self._gold())
+        return recs
+
+    def test_comparator_gets_prior_period(self):
+        recs = self._run("Gross margin was $180,683 million (46.2% of net sales), against $169,148 million (44.1%) [9].")
+        by = {r.raw: r for r in recs if r.metric == "gross_profit"}
+        self.assertEqual(by["$180,683 million"].status, "correct")
+        self.assertEqual(by["$169,148 million"].period, "FY2023")
+        self.assertEqual(by["$169,148 million"].status, "correct")
+
+    def test_period_binding_a_in_year_against_b(self):
+        recs = self._run("Total net sales were $391,035 million in FY2024, against $383,285 million in FY2023 [5].")
+        self.assertTrue(all(r.status == "correct" for r in recs if r.metric == "revenue"))
+
+    def test_per_share_comparison(self):
+        recs = self._run("Diluted EPS was $6.08, against $6.13 [8].")
+        self.assertEqual([r.status for r in recs if r.metric == "eps_diluted"], ["correct", "correct"])
+
+    def test_unicode_minus_is_negative(self):
+        units = parse_report("Net sales grew \u22123.2%.")
+        vals = [m.value for u in units for m in u.mentions]
+        self.assertTrue(vals and vals[0] < 0)
+
 
 if __name__ == "__main__":
     unittest.main()

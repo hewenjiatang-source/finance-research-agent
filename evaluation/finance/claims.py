@@ -73,6 +73,7 @@ def _cells(line: str) -> list[str]:
 
 
 def parse_report(report: str) -> list[Unit]:
+    report = report.replace("\u2212", "-")  # U+2212 MINUS SIGN: without this "−3.36%" would be read as +3.36%
     body = strip_boilerplate(report)
     units: list[Unit] = []
     lines = body.splitlines()

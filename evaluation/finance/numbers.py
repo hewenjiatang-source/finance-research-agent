@@ -50,6 +50,7 @@ class Mention:
     unit_given: bool = False
     row: str = ""           # first table column (metric name); empty outside tables
     col: str = ""           # table column header (period); empty outside tables
+    clause: str = ""        # text the mention was extracted from; start/end are offsets into it
 
     @property
     def half_ulp(self) -> float:
@@ -115,6 +116,6 @@ def extract_mentions(text: str, sentence: str = "", base: int = 0) -> list[Menti
         out.append(Mention(
             raw=m.group(0).strip(), value=value, kind=kind, decimals=dec, scale=scale,
             start=base + m.start(), end=base + m.end(), sentence=sentence or text,
-            unit_given=bool(unit or cur or pre or pct or ps),
+            unit_given=bool(unit or cur or pre or pct or ps), clause=text,
         ))
     return out
