@@ -122,6 +122,8 @@ class ResearchReport:
         num_replan: 重规划次数。
         adversarial_rounds: 对抗验证轮数。
         final_score: 最终综合评分（由外部评测模块写入）。
+        evidence: 证据账本快照（财报场景）。每条含 id/kind/url/title/text；
+                  报告里的 [n] 引用对应 evidence[n-1]，供引用核对 / 数据准确性评测离线重放。
     """
     query: str
     content: str
@@ -131,6 +133,7 @@ class ResearchReport:
     num_replan: int = 0
     adversarial_rounds: int = 0
     final_score: float = 0.0
+    evidence: list[dict] = field(default_factory=list)
 
 
 @dataclass

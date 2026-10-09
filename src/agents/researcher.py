@@ -104,11 +104,9 @@ class ResearcherAgent(BaseAgent):
             schemas = [t.get_openai_tool_schema() for t in self.tools]
             self.policy.set_tools(schemas)
 
-        # 根据任务类型确定 fallback 工具
-        desc_lower = (task.description or "").lower()
-        academic_keywords = ["论文", "paper", "publication", "学术", "arxiv", "neurips", "icml", "iclr", "scholar", "citation", "文献"]
-        fallback_tool = "arxiv_reader" if any(kw in desc_lower for kw in academic_keywords) else "web_search"
-        
+        # 根据任务类型确定 fallback 工具（子类可覆盖 _fallback_tool）
+        fallback_tool = self._fallback_tool(task)
+
         for turn in range(self.max_turns):
             # Fallback: if last turn had no tool_calls, force a search instruction
             if turn > 0 and messages and messages[-1].get("role") == "assistant":
@@ -268,6 +266,12 @@ class ResearcherAgent(BaseAgent):
             token_usage=total_tokens,
             confidence=0.0,
         )
+
+    def _fallback_tool(self, task: SubTask) -> str:
+        """模型一轮没调用工具时，强制要求它使用的工具名。"""
+        desc_lower = (task.description or "").lower()
+        academic_keywords = ["论文", "paper", "publication", "学术", "arxiv", "neurips", "icml", "iclr", "scholar", "citation", "文献"]
+        return "arxiv_reader" if any(kw in desc_lower for kw in academic_keywords) else "web_search"
 
     def _system_prompt(self) -> str:
         return (

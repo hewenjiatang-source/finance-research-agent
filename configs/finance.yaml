@@ -1,0 +1,30 @@
+# 财报 / 金融文档研究场景配置：在 default.yaml 之上覆盖
+#   python scripts/run_finance.py "对比苹果FY2023与FY2022的营收、净利润和EPS，并分析主要驱动"
+extends: default.yaml
+domain: finance
+
+finance:
+  language: zh                 # zh | en（报告语言；数字、单位、引文保持原文）
+  sec_user_agent: ""           # 留空则读 .env 的 SEC_USER_AGENT（SEC 要求形如 "Name email@example.com"）
+  max_tool_calls: 8            # 研究员单个子任务的工具调用预算（写入 prompt）
+  researcher_max_turns: 12
+
+orchestrator:
+  max_sub_questions: 8
+  global_timeout_seconds: 900
+
+compressor:
+  max_context_length: 150000
+
+adversarial:
+  enabled: true
+  max_rounds: 3                # 财报场景 3 轮足够；default 的 10 轮成本过高
+  score_threshold: 9.0
+  max_report_chars: 60000      # 送审全文（原框架只送前 4000 字）
+  max_sources: 60
+
+tools:
+  web_search:
+    mock_mode: false           # 联调/无 Key 时可改 true；SEC 工具不受影响
+  code_sandbox:
+    enabled: false

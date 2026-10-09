@@ -8,6 +8,7 @@ from .browser import BrowserTool, MockBrowserTool, BaseBrowserTool, get_browser_
 from .file_reader import FileReaderTool
 from .calculator import CalculatorTool
 from .notepad import NotepadTool, NotepadEntry
+from .sec_edgar import SecClient, SecFilingsTool, SecFactsTool, SecFilingTool, create_sec_tools
 
 __all__ = [
     # 搜索与阅读
@@ -26,4 +27,10 @@ __all__ = [
     # 辅助
     "NotepadTool",
     "NotepadEntry",
+    # 财报研究（SEC EDGAR）
+    "SecClient",
+    "SecFilingsTool",
+    "SecFactsTool",
+    "SecFilingTool",
+    "create_sec_tools",
 ]

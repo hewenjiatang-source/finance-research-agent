@@ -1,0 +1,32 @@
+{
+ "2023": {
+  "revenue": 48250000000,
+  "gross_profit": 21100000000,
+  "operating_income": 9870000000,
+  "net_income": 7425000000,
+  "eps_diluted": 3.71,
+  "diluted_shares": 2001000000,
+  "operating_cash_flow": 10600000000,
+  "capex": 2150000000,
+  "rd_expense": 4120000000,
+  "total_assets": 91300000000,
+  "total_liabilities": 55200000000,
+  "stockholders_equity": 36100000000,
+  "cash_and_equivalents": 14800000000
+ },
+ "2022": {
+  "revenue": 44600000000,
+  "gross_profit": 19050000000,
+  "operating_income": 8720000000,
+  "net_income": 6610000000,
+  "eps_diluted": 3.28,
+  "diluted_shares": 2015000000,
+  "operating_cash_flow": 9400000000,
+  "capex": 1980000000,
+  "rd_expense": 3760000000,
+  "total_assets": 85700000000,
+  "total_liabilities": 53100000000,
+  "stockholders_equity": 32600000000,
+  "cash_and_equivalents": 12900000000
+ }
+}

@@ -256,15 +256,29 @@ class RedAgent:
         max_tokens: 单维度评估的最大输出 token 数。
     """
 
-    def __init__(self, policy, max_tokens: int = 2048):
+    def __init__(
+        self,
+        policy,
+        max_tokens: int = 2048,
+        max_report_chars: int = 4000,
+        max_sources: int = 15,
+        extra_system: str = "",
+    ):
         """初始化 Red Agent。
 
         Args:
             policy: 任意实现了 __call__(messages:list) -> OpenAICompatibleDict 的对象。
             max_tokens: 每个维度评估的最大输出长度。
+            max_report_chars: 送审的报告最大字符数（默认 4000 保持原行为；财报场景应调大，
+                              否则只审查报告开头）。
+            max_sources: 送审的来源条数上限。
+            extra_system: 追加到 system prompt 的领域审查指令（如财报数字核对规则）。
         """
         self.policy = policy
         self.max_tokens = max_tokens
+        self.max_report_chars = max_report_chars
+        self.max_sources = max_sources
+        self.system_prompt = SYSTEM_RED_AGENT + (("\n\n" + extra_system) if extra_system else "")
 
     @trace_agent(name="red_agent.attack", tags=["m5", "red", "adversarial"])
     async def attack(self, report: ResearchReport) -> RedVerdict:
@@ -286,11 +300,12 @@ class RedAgent:
         raw_feedbacks: list[str] = []
 
         # 截断报告内容，避免单条 prompt 超过上下文限制
-        content_truncated = report.content[:4000] if len(report.content) > 4000 else report.content
-        if len(report.content) > 4000:
-            content_truncated += "\n\n[报告已截断，仅显示前 4000 字符]"
-        
-        sources_text = self._format_sources(report.sources, max_items=15)
+        limit = self.max_report_chars
+        content_truncated = report.content[:limit] if len(report.content) > limit else report.content
+        if len(report.content) > limit:
+            content_truncated += f"\n\n[报告已截断，仅显示前 {limit} 字符]"
+
+        sources_text = self._format_sources(report.sources, max_items=self.max_sources)
 
         for dim, prompt_template in DIMENSION_PROMPTS.items():
             # 使用安全替换，避免 report.content/sources_text 中的 { 被 format 误解析
@@ -299,7 +314,7 @@ class RedAgent:
             prompt = prompt.replace("{content}", content_truncated)
             prompt = prompt.replace("{sources}", sources_text)
             messages = [
-                {"role": "system", "content": SYSTEM_RED_AGENT},
+                {"role": "system", "content": self.system_prompt},
                 {"role": "user", "content": prompt},
             ]
 
@@ -348,7 +363,7 @@ class RedAgent:
             title = s.get("title", "未知标题")
             url = s.get("url", "")
             snippet = s.get("snippet", "")[:300]  # 截断 snippet
-            lines.append(f"[{i}] {title}\nURL: {url}\nSnippet: {snippet}\n")
+            lines.append(f"[{s.get('id', i)}] {title}\nURL: {url}\nSnippet: {snippet}\n")
         if len(sources) > max_items:
             lines.append(f"... 还有 {len(sources) - max_items} 个来源未显示")
         return "\n".join(lines)

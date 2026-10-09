@@ -160,10 +160,23 @@ class BlueAgent:
         max_tokens: 单次修复调用的最大输出 token。
     """
 
-    def __init__(self, policy, tools: list[Any] | None = None, max_tokens: int = 4096):
+    def __init__(
+        self,
+        policy,
+        tools: list[Any] | None = None,
+        max_tokens: int = 4096,
+        max_report_chars: int = 4000,
+        max_sources: int = 15,
+        extra_system: str = "",
+    ):
         self.policy = policy
         self.tools = tools or []
         self.max_tokens = max_tokens
+        # 送给模型修复的报告最大字符数。注意：修复结果只对应被送审的前 N 字符，
+        # 因此写回时会与原文剩余部分拼接（见 _merge_fixed），不会再把长报告截断覆盖。
+        self.max_report_chars = max_report_chars
+        self.max_sources = max_sources
+        self.system_prompt = SYSTEM_BLUE_AGENT + (("\n\n" + extra_system) if extra_system else "")
         # 缓存搜索工具
         self._search_tool = self._find_search_tool()
 
@@ -266,9 +279,9 @@ class BlueAgent:
         prompt = PROMPT_IN_PLACE_FIX
         prompt = prompt.replace("{issue_desc}", issue.description)
         prompt = prompt.replace("{content}", self._truncate_content(report.content))
-        prompt = prompt.replace("{sources}", self._format_sources(report.sources, max_items=15))
+        prompt = prompt.replace("{sources}", self._format_sources(report.sources, max_items=self.max_sources))
         messages = [
-            {"role": "system", "content": SYSTEM_BLUE_AGENT},
+            {"role": "system", "content": self.system_prompt},
             {"role": "user", "content": prompt},
         ]
         resp = self.policy(messages)
@@ -276,7 +289,7 @@ class BlueAgent:
 
         fixed_content, changes = self._parse_fix_json(raw)
         if fixed_content:
-            report.content = fixed_content
+            report.content = self._merge_fixed(report.content, fixed_content)
             return FixOperation(
                 issue=issue,
                 action=f"in_place_fix: {changes}",
@@ -323,7 +336,7 @@ class BlueAgent:
         search_results = search_results[:2000] if len(search_results) > 2000 else search_results
         prompt = prompt.replace("{search_results}", search_results)
         messages = [
-            {"role": "system", "content": SYSTEM_BLUE_AGENT},
+            {"role": "system", "content": self.system_prompt},
             {"role": "user", "content": prompt},
         ]
         resp = self.policy(messages)
@@ -331,7 +344,7 @@ class BlueAgent:
 
         fixed_content, changes = self._parse_fix_json(raw)
         if fixed_content:
-            report.content = fixed_content
+            report.content = self._merge_fixed(report.content, fixed_content)
             return FixOperation(
                 issue=issue,
                 action=f"supplementary_search: {changes}",
@@ -353,7 +366,7 @@ class BlueAgent:
         prompt = prompt.replace("{issue_desc}", issue.description)
         prompt = prompt.replace("{content}", self._truncate_content(report.content))
         messages = [
-            {"role": "system", "content": SYSTEM_BLUE_AGENT},
+            {"role": "system", "content": self.system_prompt},
             {"role": "user", "content": prompt},
         ]
         resp = self.policy(messages)
@@ -361,7 +374,7 @@ class BlueAgent:
 
         fixed_content, removed = self._parse_removal_json(raw)
         if fixed_content:
-            report.content = fixed_content
+            report.content = self._merge_fixed(report.content, fixed_content)
             return FixOperation(
                 issue=issue,
                 action=f"removal: {removed}",
@@ -395,7 +408,7 @@ class BlueAgent:
         prompt = prompt.replace("{revised}", revised[:2000])
         prompt = prompt.replace("{fixes}", fixes_text)
         messages = [
-            {"role": "system", "content": SYSTEM_BLUE_AGENT},
+            {"role": "system", "content": self.system_prompt},
             {"role": "user", "content": prompt},
         ]
         resp = self.policy(messages)
@@ -423,7 +436,11 @@ class BlueAgent:
             return True, []
 
     def _format_sources(self, sources: list[dict], max_items: int = 15) -> str:
-        """格式化来源列表，截断以避免上下文膨胀。"""
+        """格式化来源列表，截断以避免上下文膨胀。
+
+        来源带稳定 ``id``（证据账本）时使用该 id 作为编号，保证与报告里的 [n] 一致；
+        否则退回按位置编号（原行为）。
+        """
         if not sources:
             return "（无来源）"
         lines = []
@@ -431,16 +448,32 @@ class BlueAgent:
             title = s.get("title", "未知标题")
             url = s.get("url", "")
             snippet = s.get("snippet", "")[:300]
-            lines.append(f"[{i}] {title}\nURL: {url}\nSnippet: {snippet}\n")
+            lines.append(f"[{s.get('id', i)}] {title}\nURL: {url}\nSnippet: {snippet}\n")
         if len(sources) > max_items:
             lines.append(f"... 还有 {len(sources) - max_items} 个来源未显示")
         return "\n".join(lines)
 
-    def _truncate_content(self, content: str, max_len: int = 4000) -> str:
+    def _truncate_content(self, content: str, max_len: int | None = None) -> str:
         """截断报告内容，避免 prompt 过长。"""
+        max_len = max_len or self.max_report_chars
         if len(content) <= max_len:
             return content
         return content[:max_len] + "\n\n[报告已截断，仅显示前 {} 字符]".format(max_len)
+
+    def _merge_fixed(self, original: str, fixed: str) -> str:
+        """把模型返回的修复结果写回报告。
+
+        若原报告超过 max_report_chars，模型只看到了开头部分，它返回的 fixed_content
+        也只对应开头——直接覆盖会丢掉后半篇报告。这里去掉模型可能回显的截断提示，
+        再拼回原文剩余部分。
+        """
+        n = self.max_report_chars
+        if len(original) <= n:
+            return fixed
+        import re as _re
+
+        fixed = _re.sub(r"\n*\[报告已截断[^\]]*\]\s*$", "", fixed.rstrip())
+        return fixed + original[n:]
 
     def _parse_fix_json(self, raw: str) -> tuple[str, list[dict]]:
         """解析 in_place / search 修复的 JSON 输出。"""

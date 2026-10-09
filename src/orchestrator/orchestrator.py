@@ -59,6 +59,7 @@ class Orchestrator:
         adversarial_loop: Any | None = None,
         memory_store: Any | None = None,
         summarizer_policy: Any | None = None,
+        summarizer_factory: Callable[[Any, list], Any] | None = None,
     ) -> None:
         self.planner = planner
         self.agent_pool = agent_pool
@@ -67,6 +68,8 @@ class Orchestrator:
         self.adversarial_loop = adversarial_loop
         self.memory_store = memory_store
         self.summarizer_policy = summarizer_policy
+        # (policy, tools) -> SummarizerAgent；财报场景注入带证据账本的合成器
+        self.summarizer_factory = summarizer_factory
 
         # 运行时状态（保留 dict 作为快速缓存，M4 提供持久化 + 语义检索）
         self._memory_store: dict[str, Any] = {}
@@ -390,7 +393,10 @@ class Orchestrator:
         if not isinstance(agent, SummarizerAgent):
             # 优先使用配置的 summarizer_policy（更大的 max_tokens），fallback 到 agent.policy
             policy = self.summarizer_policy or agent.policy
-            agent = SummarizerAgent(name="summarizer", policy=policy, tools=agent.tools)
+            if self.summarizer_factory is not None:
+                agent = self.summarizer_factory(policy, agent.tools)
+            else:
+                agent = SummarizerAgent(name="summarizer", policy=policy, tools=agent.tools)
 
         try:
             result = await asyncio.wait_for(

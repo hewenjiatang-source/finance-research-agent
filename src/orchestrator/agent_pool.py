@@ -37,9 +37,11 @@ class AgentPool:
         policy_factory,
         tools_factory=None,
         max_idle: int = 3,
+        researcher_cls=None,
     ) -> None:
         self.policy_factory = policy_factory
         self.tools_factory = tools_factory
+        self.researcher_cls = researcher_cls  # None -> ResearcherAgent；财报场景注入 FinanceResearcherAgent
         self.max_idle = max(max_idle, 1)
 
         # 类型 -> 空闲 Agent 列表
@@ -134,17 +136,18 @@ class AgentPool:
         from ..agents.summarizer import SummarizerAgent
         from .schemas import TaskType
 
+        Researcher = self.researcher_cls or ResearcherAgent
         if type_key == TaskType.SEARCH.value:
-            return ResearcherAgent(name=f"researcher_{type_key}", policy=policy, tools=tools)
+            return Researcher(name=f"researcher_{type_key}", policy=policy, tools=tools)
         elif type_key == TaskType.ANALYZE.value:
-            return ResearcherAgent(name=f"analyzer_{type_key}", policy=policy, tools=tools)
+            return Researcher(name=f"analyzer_{type_key}", policy=policy, tools=tools)
         elif type_key == TaskType.VERIFY.value:
-            return ResearcherAgent(name=f"verifier_{type_key}", policy=policy, tools=tools)
+            return Researcher(name=f"verifier_{type_key}", policy=policy, tools=tools)
         elif type_key == "synthesize":
             return SummarizerAgent(name="summarizer", policy=policy, tools=tools)
         else:
             # 默认降级为 Researcher
-            return ResearcherAgent(name=f"researcher_default", policy=policy, tools=tools)
+            return Researcher(name=f"researcher_default", policy=policy, tools=tools)
 
     def _infer_type_key(self, agent: "BaseAgent") -> str:
         """从 Agent 实例推断其类型键。"""

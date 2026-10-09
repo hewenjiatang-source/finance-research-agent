@@ -63,15 +63,35 @@ def load_config(config_path: str | None = None) -> dict:
         raise FileNotFoundError(f"配置文件未找到: {config_path}")
 
     with open(config_path, "r", encoding="utf-8") as f:
-        config = yaml.safe_load(f)
+        config = yaml.safe_load(f) or {}
+
+    # 支持 `extends: default.yaml`：先加载父配置，再递归合并本文件（dict 深合并，其余覆盖）
+    parent = config.pop("extends", None)
+    if parent:
+        parent_path = parent if os.path.isabs(parent) else os.path.join(os.path.dirname(config_path), parent)
+        config = _deep_merge(load_config(parent_path), config)
 
     return config
+
+
+def _deep_merge(base: dict, override: dict) -> dict:
+    out = dict(base)
+    for k, v in override.items():
+        if isinstance(v, dict) and isinstance(out.get(k), dict):
+            out[k] = _deep_merge(out[k], v)
+        else:
+            out[k] = v
+    return out
+
+
+def is_finance(config: dict) -> bool:
+    return (config.get("domain") or "").lower() == "finance"
 
 
 # ---------------------------------------------------------------------------
 # 工具工厂
 # ---------------------------------------------------------------------------
-def _create_tools_factory(config: dict):
+def _create_tools_factory(config: dict, ledger=None):
     """创建工具工厂函数，返回 Agent 可用的工具列表。"""
     tools_cfg = config.get("tools", {})
     mock_mode = tools_cfg.get("web_search", {}).get("mock_mode", True)
@@ -116,6 +136,19 @@ def _create_tools_factory(config: dict):
 
     # 7. notepad
     tools["notepad"] = NotepadTool()
+
+    # 财报场景：去掉学术论文工具，加入 SEC 工具，并全部包上证据账本
+    if is_finance(config):
+        from src.finance.evidence import LedgerTool
+        from src.tools.sec_edgar import SecClient, create_sec_tools
+
+        tools.pop("arxiv_reader", None)
+        fin_cfg = config.get("finance", {})
+        client = SecClient(user_agent=fin_cfg.get("sec_user_agent") or None)
+        for t in create_sec_tools(client):
+            tools[t.name] = t
+        if ledger is not None:
+            tools = {k: LedgerTool(v, ledger) for k, v in tools.items()}
 
     # 返回列表形式（AgentPool 和 Agent 构造函数需要 list）
     return list(tools.values())
@@ -182,7 +215,22 @@ def initialize_modules(config: dict, session_id: str = "") -> dict[str, Any]:
 
     planner_policy = modules.get("planner_policy", default_policy)
     budget_tracker = BudgetTracker()
-    planner = Planner(policy=planner_policy, budget_tracker=budget_tracker)
+    finance = is_finance(config)
+    fin_cfg = config.get("finance", {}) if finance else {}
+    lang = fin_cfg.get("language", "zh")
+    ledger = None
+    if finance:
+        from src.finance.agents import FinancePlanner
+        from src.finance.evidence import EvidenceLedger
+
+        ledger = EvidenceLedger()
+        modules["ledger"] = ledger
+        planner = FinancePlanner(
+            policy=planner_policy, budget_tracker=budget_tracker,
+            max_sub_tasks=config.get("orchestrator", {}).get("max_sub_questions", 8),
+        )
+    else:
+        planner = Planner(policy=planner_policy, budget_tracker=budget_tracker)
     modules["planner"] = planner
     logger.info("[M2] Planner 模块已初始化")
 
@@ -211,7 +259,7 @@ def initialize_modules(config: dict, session_id: str = "") -> dict[str, Any]:
     logger.info(f"[M4] Memory Store 模块已初始化 (session={session_id})")
 
     # Tools（真实工具或 Mock 工具）
-    tools_list = _create_tools_factory(config)
+    tools_list = _create_tools_factory(config, ledger)
     modules["tools"] = tools_list
     logger.info(f"Tools 模块已初始化（共 {len(tools_list)} 个工具）")
 
@@ -224,8 +272,17 @@ def initialize_modules(config: dict, session_id: str = "") -> dict[str, Any]:
     blue_policy = modules.get("blue_agent_policy", default_policy)
     adversarial_cfg = config.get("adversarial", {})
 
-    red_agent = RedAgent(policy=red_policy)
-    blue_agent = BlueAgent(policy=blue_policy, tools=tools_list)
+    if finance:
+        from src.finance.prompts import BLUE_FINANCE_EXTRA, RED_FINANCE_EXTRA
+
+        review = dict(max_report_chars=adversarial_cfg.get("max_report_chars", 60000),
+                      max_sources=adversarial_cfg.get("max_sources", 60))
+        red_agent = RedAgent(policy=red_policy, max_tokens=4096, extra_system=RED_FINANCE_EXTRA, **review)
+        blue_agent = BlueAgent(policy=blue_policy, tools=tools_list, max_tokens=16384,
+                               extra_system=BLUE_FINANCE_EXTRA, **review)
+    else:
+        red_agent = RedAgent(policy=red_policy)
+        blue_agent = BlueAgent(policy=blue_policy, tools=tools_list)
     adversarial_loop = AdversarialLoop(
         red_agent=red_agent,
         blue_agent=blue_agent,
@@ -241,10 +298,25 @@ def initialize_modules(config: dict, session_id: str = "") -> dict[str, Any]:
     from src.orchestrator.orchestrator import Orchestrator
     from src.orchestrator.agent_pool import AgentPool
 
+    researcher_cls = None
+    summarizer_factory = None
+    if finance:
+        import functools
+
+        from src.finance.agents import FinanceResearcherAgent, FinanceSummarizerAgent
+
+        researcher_cls = functools.partial(
+            FinanceResearcherAgent, language=lang, max_tool_calls=fin_cfg.get("max_tool_calls", 8),
+            max_turns=fin_cfg.get("researcher_max_turns", 12),
+        )
+        summarizer_factory = lambda policy, tools: FinanceSummarizerAgent(  # noqa: E731
+            name="summarizer", policy=policy, tools=tools, ledger=ledger, language=lang
+        )
     agent_pool = AgentPool(
         policy_factory=lambda: modules.get("solver_policy", default_policy),
         tools_factory=lambda: list(modules["tools"]),
         max_idle=3,
+        researcher_cls=researcher_cls,
     )
     modules["agent_pool"] = agent_pool
 
@@ -256,6 +328,7 @@ def initialize_modules(config: dict, session_id: str = "") -> dict[str, Any]:
         adversarial_loop=adversarial_loop,
         memory_store=memory_store,
         summarizer_policy=modules.get("summarizer_policy", default_policy),
+        summarizer_factory=summarizer_factory,
     )
     modules["orchestrator"] = orchestrator
     logger.info("[M1] Orchestrator 模块已初始化")
@@ -272,7 +345,7 @@ def initialize_modules(config: dict, session_id: str = "") -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 # 研究流程主函数
 # ---------------------------------------------------------------------------
-async def run_research(query: str, config: dict, modules: dict[str, Any]) -> str:
+async def run_research_full(query: str, config: dict, modules: dict[str, Any]):
     """
     执行完整的研究流程。
 
@@ -291,7 +364,7 @@ async def run_research(query: str, config: dict, modules: dict[str, Any]) -> str
         modules: 已初始化的模块实例字典。
 
     Returns:
-        最终研究报告文本（Markdown 格式）。
+        (最终研究报告 Markdown 文本, ResearchReport)。财报场景下 ResearchReport.evidence 为证据账本快照。
     """
     import asyncio
 
@@ -299,6 +372,10 @@ async def run_research(query: str, config: dict, modules: dict[str, Any]) -> str
     logger.info(f"开始研究，查询: {query[:80]}...")
 
     start_time = time.time()
+
+    ledger = modules.get("ledger")
+    if ledger is not None:
+        ledger.reset()  # 账本按次运行；同一 modules 不支持并发跑多个 query
 
     # Step 1-3: Orchestrator 内部完成规划、调度、收集、合成
     orchestrator = modules["orchestrator"]
@@ -319,6 +396,10 @@ async def run_research(query: str, config: dict, modules: dict[str, Any]) -> str
         f"搜索轮数={report.num_searches} | 重规划={report.num_replan} | 对抗轮数={report.adversarial_rounds}"
     )
 
+    if ledger is not None:  # 对抗环里 Blue 可能又检索了新证据，以最终账本为准
+        report.evidence = ledger.to_list()
+        report.sources = ledger.to_sources()
+
     # Step 4/5: 进化优化（如启用且已训练）
     if run_cfg.enable_evolution:
         logger.info("[Evolution] 进化优化已启用（预留接口）")
@@ -334,7 +415,13 @@ async def run_research(query: str, config: dict, modules: dict[str, Any]) -> str
 
     # 组装最终输出
     final_report = _format_report(report, elapsed)
-    return final_report
+    return final_report, report
+
+
+async def run_research(query: str, config: dict, modules: dict[str, Any]) -> str:
+    """兼容旧接口：只返回 Markdown 文本。需要证据账本请用 run_research_full。"""
+    text, _ = await run_research_full(query, config, modules)
+    return text
 
 
 def _format_report(report, elapsed: float) -> str:
@@ -375,7 +462,9 @@ def _format_report(report, elapsed: float) -> str:
             title = src.get("title", "未知标题")
             url = src.get("url", "")
             snippet = src.get("snippet", "")
-            lines.append(f"{i}. [{title}]({url}) — {snippet}")
+            n = src.get("id", i)  # 财报场景：编号 == evidence_id，与正文 [n] 对应
+            snippet = " ".join(snippet.split())[:160]
+            lines.append(f"[{n}] [{title}]({url}) — {snippet}" if "id" in src else f"{i}. [{title}]({url}) — {snippet}")
         lines.append("")
 
     return "\n".join(lines)
@@ -384,7 +473,7 @@ def _format_report(report, elapsed: float) -> str:
 # ---------------------------------------------------------------------------
 # 报告保存
 # ---------------------------------------------------------------------------
-def save_report(report: str, query: str, output_dir: str = "outputs/reports") -> str:
+def save_report(report: str, query: str, output_dir: str = "outputs/reports", evidence: list[dict] | None = None) -> str:
     """
     将研究报告保存到文件。
 
@@ -398,5 +487,12 @@ def save_report(report: str, query: str, output_dir: str = "outputs/reports") ->
 
     with open(filepath, "w", encoding="utf-8") as f:
         f.write(report)
+
+    if evidence:  # 证据侧车文件：评测可离线重放引用核对/数据准确性
+        from src.finance.evidence import EVIDENCE_SCHEMA
+        import json
+
+        with open(filepath[:-3] + ".evidence.json", "w", encoding="utf-8") as f:
+            json.dump({"schema": EVIDENCE_SCHEMA, "query": query, "evidence": evidence}, f, ensure_ascii=False, indent=1)
 
     return filepath
