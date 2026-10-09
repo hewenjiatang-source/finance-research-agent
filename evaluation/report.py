@@ -3,7 +3,7 @@
 """
 evaluation/report.py
 ================================================================================
-评测报告生成器：聚合多维度评测结果，生成结构化报告。
+Evaluation report generator: aggregates multi-dimension evaluation results into a structured report.
 ================================================================================
 """
 
@@ -16,7 +16,7 @@ from typing import Any
 
 
 class EvaluationReport:
-    """统一评测报告容器。"""
+    """Unified evaluation report container."""
 
     def __init__(self, name: str, num_questions: int = 0) -> None:
         self.name = name
@@ -26,15 +26,15 @@ class EvaluationReport:
         self.summary: dict[str, Any] = {}
 
     def add_detail(self, detail: dict[str, Any]) -> None:
-        """添加单条评测明细。"""
+        """Add one evaluation detail record."""
         self.details.append(detail)
 
     def set_summary(self, summary: dict[str, Any]) -> None:
-        """设置汇总统计。"""
+        """Set the summary statistics."""
         self.summary = summary
 
     def to_dict(self) -> dict[str, Any]:
-        """导出为字典。"""
+        """Export as a dict."""
         return {
             "evaluation_name": self.name,
             "timestamp": self.timestamp,
@@ -44,7 +44,7 @@ class EvaluationReport:
         }
 
     def save(self, output_dir: str, filename: str | None = None) -> str:
-        """保存为 JSON 文件。"""
+        """Save as a JSON file."""
         os.makedirs(output_dir, exist_ok=True)
         if filename is None:
             filename = f"{self.name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
@@ -54,20 +54,20 @@ class EvaluationReport:
         return filepath
 
     def to_markdown(self) -> str:
-        """生成 Markdown 格式摘要。"""
+        """Generate a Markdown summary."""
         lines = [
             f"# {self.name}",
             "",
-            f"- **评测时间**: {self.timestamp}",
-            f"- **题目数量**: {self.num_questions}",
+            f"- **Evaluation time**: {self.timestamp}",
+            f"- **Number of questions**: {self.num_questions}",
             "",
-            "## 汇总",
+            "## Summary",
             "",
         ]
         for key, value in self.summary.items():
             lines.append(f"- **{key}**: {value}")
         lines.append("")
-        lines.append("## 明细")
+        lines.append("## Details")
         lines.append("")
         for d in self.details:
             lines.append(f"### {d.get('question_id', 'unknown')}")

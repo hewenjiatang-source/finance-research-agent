@@ -1,7 +1,8 @@
-"""数据准确性：把报告里的数字映射到 (公司, 指标, 期间)，与 XBRL 金标准比较，并给错误归类。
+"""Data accuracy: map numbers in the report to (company, metric, period), compare with XBRL gold, and classify errors.
 
-比较是"四舍五入感知"的：报告写 48,250.0 million 只要求落在 [48,249.95, 48,250.05] million 内，
-不会因为把 48,250,000,000 写成 482.5 亿而误判；也不会放过 ×1000 的量级错误。
+The comparison is rounding-aware: a report saying 48,250.0 million only needs to fall within [48,249.95, 48,250.05] million,
+so writing 48,250,000,000 as 482.5亿 is not misjudged, and a x1000 scale error is not let through.
+Chinese tokens in the regexes below are intentional: they let the same checks run on Chinese-language reports.
 """
 from __future__ import annotations
 
@@ -58,7 +59,7 @@ class AccuracyRecord:
 
 
 def find_metric(text: str, anchor: int | None = None) -> str | None:
-    """在 text 中找指标别名（最长优先、互不重叠）；有多个时取离 anchor 最近的。"""
+    """Find a metric alias in text (longest first, non-overlapping); with several hits, take the one nearest to anchor."""
     low = text.lower()
     taken: list[tuple[int, int]] = []
     hits: list[tuple[int, int, str]] = []
@@ -90,10 +91,10 @@ def find_period(text: str, anchor: int | None = None, latest: bool = False) -> s
         for m in rx.finditer(text):
             hits.append((m.start(), f"FY{m.group(1)}"))
         if hits and rx is not _PERIOD_RES[-1]:
-            break  # 高优先级格式命中就不再用裸年份
+            break  # once a higher-priority format matches, do not fall back to bare years
     if not hits:
         return None
-    if latest:  # 增长率类提及：期间取句中最晚的那个（"FY2023 增长 8.2%（相比 FY2022）"）
+    if latest:  # growth-type mentions: take the latest period in the sentence ("FY2023 grew 8.2% (vs FY2022)")
         return max(h[1] for h in hits)
     if anchor is None:
         return hits[0][1]
@@ -101,7 +102,7 @@ def find_period(text: str, anchor: int | None = None, latest: bool = False) -> s
 
 
 def _local_anchor(m: Mention) -> int:
-    """mention 在其 sentence 中的位置（sentence 是 text 的子串时用 find）。"""
+    """Position of the mention in its sentence (uses find, since the sentence contains the text)."""
     i = m.sentence.find(m.raw)
     return max(i, 0)
 
@@ -153,7 +154,7 @@ def check_accuracy(mentions: list[Mention], gold: Gold) -> list[AccuracyRecord]:
             continue
         sent = m.sentence
         anchor = _local_anchor(m)
-        # 表格：行首列 = 指标，列头 = 期间或"变化"
+        # table: first column = metric, column header = period or "change"
         metric = find_metric(m.row) if m.row else find_metric(sent, anchor)
         col_period = find_period(m.col) if m.col else None
         is_pct = m.kind == "percent"

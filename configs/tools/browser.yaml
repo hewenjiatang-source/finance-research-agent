@@ -1,33 +1,33 @@
 # =============================================================================
-# Browser (网页阅读器) 工具配置
+# Browser (web page reader) tool configuration
 # =============================================================================
-# 打开 URL 并提取网页正文，是 web_search 的下游工具。
-# web_search 负责"找到链接"，browser 负责"读取原文"。
+# Opens a URL and extracts the page body text; it is the downstream tool of web_search.
+# web_search "finds links"; browser "reads the original content".
 # =============================================================================
 
 browser:
   name: "browser"
-  description: "打开 URL 并提取网页正文内容"
+  description: "Open a URL and extract the web page body text"
 
-  # 总开关
+  # Master switch
   enabled: true
 
   # ---------------------------------------------------------------------------
-  # 网络参数
+  # Network parameters
   # ---------------------------------------------------------------------------
-  # HTTP 请求超时（秒）
+  # HTTP request timeout (seconds)
   timeout_seconds: 15
-  # User-Agent 字符串
+  # User-Agent string
   user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-  # 是否跟随重定向
+  # Whether to follow redirects
   follow_redirects: true
 
   # ---------------------------------------------------------------------------
-  # 内容提取参数
+  # Content extraction parameters
   # ---------------------------------------------------------------------------
-  # 默认返回的最大字符数（防止超长页面占满上下文）
+  # Default maximum characters returned (prevents very long pages from filling the context)
   max_chars: 8000
-  # 噪声标签（提取时直接移除的 HTML 标签）
+  # Noise tags (HTML tags removed directly during extraction)
   noise_tags:
     - "script"
     - "style"
@@ -40,16 +40,16 @@ browser:
     - "svg"
 
   # ---------------------------------------------------------------------------
-  # 失败处理
+  # Failure handling
   # ---------------------------------------------------------------------------
-  # 请求失败重试次数
+  # Number of retries on request failure
   max_retries: 2
-  # 重试间隔（秒，含指数退避）
+  # Retry interval (seconds, with exponential backoff)
   retry_delay: 1.0
 
   # ---------------------------------------------------------------------------
-  # 依赖说明
+  # Dependency notes
   # ---------------------------------------------------------------------------
-  # 需要安装 beautifulsoup4 进行 HTML 解析：
+  # beautifulsoup4 must be installed for HTML parsing:
   #   pip install beautifulsoup4
-  # 若未安装，会自动降级为简单正则提取（效果较差）。
+  # If not installed, it automatically falls back to simple regex extraction (lower quality).

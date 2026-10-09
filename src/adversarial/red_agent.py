@@ -1,13 +1,13 @@
 """
-M5 Red Agent — 五维度对抗攻击器
+M5 Red Agent — five-dimension adversarial attacker
 
-Red Agent 的职责是对研究报告进行多维度"攻击"，找出事实错误、幻觉、逻辑矛盾、
-来源可信度问题和覆盖缺失。每个维度有独立的 Prompt 模板，确保评估的细致与全面。
+The Red Agent's job is to "attack" a research report along several dimensions to find factual errors, hallucinations, logical contradictions,
+source-credibility problems and coverage gaps. Each dimension has its own prompt template to keep the evaluation careful and thorough.
 
-设计决策：
-1. 每个维度独立调用 LLM，避免单条 Prompt 过长导致模型注意力分散。
-2. 输出强制要求结构化 JSON，降低解析失败率。
-3. 对解析失败的维度返回保守分数（5.0）并记录原始输出，避免对抗循环崩溃。
+Design decisions:
+1. Each dimension calls the LLM independently, so one overlong prompt does not scatter the model's attention.
+2. Output is required to be structured JSON, lowering the parse-failure rate.
+3. A dimension whose output fails to parse gets a conservative score (5.0) and its raw output is recorded, so the adversarial loop does not crash.
 """
 from __future__ import annotations
 
@@ -31,71 +31,71 @@ __all__ = ["RedAgent"]
 
 
 # ============================================================================
-# Prompt 模板 — 每个维度独立、详细、可运行
+# Prompt templates — each dimension is independent, detailed and runnable
 # ============================================================================
 
 SYSTEM_RED_AGENT = (
-    "你是一位极其严苛的研究报告审查员（Red Agent）。你的任务是以批判性思维深度审查研究报告，"
-    "找出所有事实错误、幻觉、逻辑漏洞、来源缺陷和覆盖缺失。你必须基于客观证据给出评分，"
-    "不能因报告写作流畅而放松标准。评分标准要严格——多数研究报告默认只有 5-6 分而非 8-9 分。"
-    "输出必须是严格的 JSON 格式。"
+    "You are an extremely strict research-report reviewer (the Red Agent). Your task is to critically and deeply review research reports "
+    "and find all factual errors, hallucinations, logical gaps, source defects and coverage gaps. You must score based on objective evidence "
+    "and must not relax your standards because a report is well written. Scoring is strict — most research reports default to 5-6 rather than 8-9. "
+    "Output must be strict JSON."
 )
 
-# --- 维度 1: 事实核查 ---
-PROMPT_FACTUAL = """请对以下研究报告进行【事实核查】评分。
+# --- Dimension 1: fact checking ---
+PROMPT_FACTUAL = """Score the following research report on **fact checking**.
 
-评分标准（0-10分）：
-- 10分：所有可验证的事实（数字、日期、人名、机构名、统计数据）均有可靠来源支撑，且与来源完全一致。
-- 7-9分：个别非核心事实缺少直接来源，或存在轻微数值偏差（<5%）。
-- 4-6分：存在明显事实错误（日期错误、数据引用错误）但核心论点仍成立。
-- 1-3分：多处核心事实错误，严重损害报告可信度。
-- 0分：大量事实完全错误，报告基本不可信。
+Scoring rubric (0-10):
+- 10: every verifiable fact (numbers, dates, names, institutions, statistics) is backed by a reliable source and matches it exactly.
+- 7-9: a few non-core facts lack a direct source, or there are slight numeric deviations (<5%).
+- 4-6: clear factual errors (wrong dates, wrongly cited data) exist but the core argument still holds.
+- 1-3: multiple core facts are wrong, seriously damaging the report's credibility.
+- 0: a large number of facts are completely wrong; the report is essentially unreliable.
 
-审查要求：
-1. 逐条提取报告中的 factual claims（数字、日期、比例、排名等）。
-2. 将每条 claim 与提供的 sources 进行比对。
-3. 标记不一致或无法验证的 claim。
+Review requirements:
+1. Extract the factual claims (numbers, dates, ratios, rankings, etc.) one by one.
+2. Compare each claim against the provided sources.
+3. Flag claims that are inconsistent or cannot be verified.
 
-请按以下 JSON 格式输出（不要有任何额外文字）：
+Output in the following JSON format (no extra text):
 {
   "score": float,           // 0-10
   "issues": [
     {
       "severity": "critical|major|minor",
-      "description": "string",   // 具体问题描述
-      "location": "string",      // 问题位置，如"第3段"或引用标记
+      "description": "string",   // specific description of the problem
+      "location": "string",      // where the problem is, e.g. "paragraph 3" or a citation mark
       "fix_type": "in_place|search|removal",
-      "evidence": "string"       // 支撑证据或 source 原文
+      "evidence": "string"       // supporting evidence or the original source text
     }
   ]
 }
 
---- 研究报告 ---
+--- Research report ---
 Query: {query}
 
 Content:
 {content}
 
---- 来源列表 ---
+--- Source list ---
 {sources}
 """
 
-# --- 维度 2: 幻觉检测 ---
-PROMPT_HALLUCINATION = """请对以下研究报告进行【幻觉检测】评分。
+# --- Dimension 2: hallucination detection ---
+PROMPT_HALLUCINATION = """Score the following research report on **hallucination detection**.
 
-评分标准（0-10分）：
-- 10分：报告中的每一条信息都能在 sources 中找到明确支撑，无 hallucination。
-- 7-9分：存在少量"合理的推断"但未明确标注为推断，可能误导读者。
-- 4-6分：存在明显的无来源陈述，尤其是具体数字、事件细节或因果关系。
-- 1-3分：大量段落包含无来源信息，部分信息疑似模型编造。
-- 0分：报告充斥着模型幻觉，几乎无可信内容。
+Scoring rubric (0-10):
+- 10: every piece of information in the report finds clear support in the sources; no hallucination.
+- 7-9: a few "reasonable inferences" are not explicitly marked as inferences and may mislead readers.
+- 4-6: clear unsourced statements, especially specific numbers, event details or causal relationships.
+- 1-3: many paragraphs contain unsourced information; some appears fabricated by the model.
+- 0: the report is full of model hallucinations and has almost no credible content.
 
-审查要求：
-1. 逐段检查是否存在无 sources 支撑的 claim。
-2. 特别关注：具体数字、精确日期、直接引语、因果关系、排名顺序。
-3. 区分"合理推断"与"无依据断言"：推断应有明确标注。
+Review requirements:
+1. Check paragraph by paragraph for claims not supported by the sources.
+2. Pay special attention to: specific numbers, exact dates, direct quotes, causal relationships, rankings.
+3. Distinguish "reasonable inference" from "unsupported assertion": inferences should be clearly marked.
 
-请按以下 JSON 格式输出（不要有任何额外文字）：
+Output in the following JSON format (no extra text):
 {
   "score": float,
   "issues": [
@@ -109,33 +109,33 @@ PROMPT_HALLUCINATION = """请对以下研究报告进行【幻觉检测】评分
   ]
 }
 
---- 研究报告 ---
+--- Research report ---
 Query: {query}
 
 Content:
 {content}
 
---- 来源列表 ---
+--- Source list ---
 {sources}
 """
 
-# --- 维度 3: 逻辑一致性 ---
-PROMPT_LOGICAL = """请对以下研究报告进行【逻辑一致性】评分。
+# --- Dimension 3: logical consistency ---
+PROMPT_LOGICAL = """Score the following research report on **logical consistency**.
 
-评分标准（0-10分）：
-- 10分：论证链条完整，前提与结论一致，无矛盾陈述。
-- 7-9分：个别推断稍显跳跃，但不影响整体结论。
-- 4-6分：存在内部矛盾（如前文说A，后文说非A）或因果谬误。
-- 1-3分：多处逻辑断裂、自相矛盾，核心论点无法自洽。
-- 0分：报告逻辑混乱，论证完全不可信。
+Scoring rubric (0-10):
+- 10: the argument chain is complete, premises and conclusions agree, no contradictory statements.
+- 7-9: a few inferences are slightly jumpy but do not affect the overall conclusion.
+- 4-6: internal contradictions (e.g. A earlier, not-A later) or causal fallacies exist.
+- 1-3: multiple logical breaks and self-contradictions; the core argument is not self-consistent.
+- 0: the logic is chaotic and the argument is entirely unreliable.
 
-审查要求：
-1. 检查是否存在前后矛盾的陈述。
-2. 检查因果关系是否合理（避免 post hoc / 因果倒置）。
-3. 检查样本推断总体是否存在以偏概全。
-4. 检查比较类论述的基准是否一致。
+Review requirements:
+1. Check for contradictory statements.
+2. Check whether causal relationships are reasonable (avoid post hoc / reversed causation).
+3. Check whether inferring a population from a sample is over-generalized.
+4. Check whether the baselines in comparative statements are consistent.
 
-请按以下 JSON 格式输出（不要有任何额外文字）：
+Output in the following JSON format (no extra text):
 {
   "score": float,
   "issues": [
@@ -149,30 +149,30 @@ PROMPT_LOGICAL = """请对以下研究报告进行【逻辑一致性】评分。
   ]
 }
 
---- 研究报告 ---
+--- Research report ---
 Query: {query}
 
 Content:
 {content}
 """
 
-# --- 维度 4: 来源可信度 ---
-PROMPT_SOURCE_CREDIBILITY = """请对以下研究报告的【来源可信度】评分。
+# --- Dimension 4: source credibility ---
+PROMPT_SOURCE_CREDIBILITY = """Score the **source credibility** of the following research report.
 
-评分标准（0-10分）：
-- 10分：所有来源均为高权威的一手资料（政府官网、顶级期刊、官方财报），且时效性强。
-- 7-9分：以权威二手资料为主，个别来源时效稍旧但非核心数据。
-- 4-6分：混有低权威来源（匿名论坛、未验证自媒体）且未做交叉验证。
-- 1-3分：主要依赖低质量来源，或存在来源循环引用。
-- 0分：无来源或来源完全不可信。
+Scoring rubric (0-10):
+- 10: all sources are highly authoritative primary materials (government sites, top journals, official financial filings) and timely.
+- 7-9: mostly authoritative secondary materials; a few sources are slightly dated but not core data.
+- 4-6: low-authority sources (anonymous forums, unverified self-media) mixed in without cross-verification.
+- 1-3: relies mainly on low-quality sources, or has circular citations.
+- 0: no sources, or the sources are entirely untrustworthy.
 
-审查要求：
-1. 评估每个 source 的域名权威性（.gov / .edu / 顶级媒体 / 自媒体 / 未知）。
-2. 评估内容类型（一手数据 / 分析报道 / 社论 / 用户生成内容）。
-3. 评估时效性：对于快速变化领域（科技、股市），1年以上为陈旧。
-4. 检查一手程度：优先一手数据，二手分析需标注原始来源。
+Review requirements:
+1. Assess each source's domain authority (.gov / .edu / top media / self-media / unknown).
+2. Assess the content type (primary data / analytical reporting / editorial / user-generated content).
+3. Assess timeliness: in fast-moving fields (technology, stock markets), more than 1 year old is stale.
+4. Check primacy: prefer primary data; secondary analysis must cite the original source.
 
-请按以下 JSON 格式输出（不要有任何额外文字）：
+Output in the following JSON format (no extra text):
 {
   "score": float,
   "issues": [
@@ -186,34 +186,34 @@ PROMPT_SOURCE_CREDIBILITY = """请对以下研究报告的【来源可信度】�
   ]
 }
 
---- 研究报告 ---
+--- Research report ---
 Query: {query}
 
 Content:
 {content}
 
---- 来源列表 ---
+--- Source list ---
 {sources}
 """
 
-# --- 维度 5: 覆盖完整度 ---
-PROMPT_COVERAGE = """请对以下研究报告的【覆盖完整度】评分。
+# --- Dimension 5: coverage completeness ---
+PROMPT_COVERAGE = """Score the **coverage completeness** of the following research report.
 
-评分标准（0-10分）：
-- 10分：完全覆盖 query 要求的所有子话题，无重要遗漏，正反方观点均衡呈现，且每个子话题的讨论都基于相关搜索结果。
-- 7-9分：覆盖了主要子话题，个别边缘视角缺失，但不影响核心结论。搜索结果与查询基本相关。
-- 4-6分：遗漏了 query 隐含的关键子话题，或只呈现单方面观点。部分搜索结果可能与查询无关。
-- 1-3分：严重跑题（例如搜索内容与查询主题无关）或大量子话题未覆盖。
-- 0分：完全未回答 query。
+Scoring rubric (0-10):
+- 10: fully covers every sub-topic the query requires, no important omissions, pros and cons presented in balance, and the discussion of each sub-topic rests on relevant search results.
+- 7-9: covers the main sub-topics; a few peripheral perspectives are missing but the core conclusion is unaffected. Search results are largely relevant to the query.
+- 4-6: omits key sub-topics implied by the query, or presents only one side. Some search results may be irrelevant to the query.
+- 1-3: seriously off-topic (e.g. search content unrelated to the query topic) or many sub-topics uncovered.
+- 0: does not answer the query at all.
 
-审查要求：
-1. 将 query 拆解为应覆盖的子话题列表。
-2. 逐一检查每个子话题是否在报告中得到充分讨论。
-3. 检查是否存在明显的立场偏差（只呈现正方而忽略反方）。
-4. 检查时间维度是否覆盖（历史背景、现状、未来趋势，视 query 需求而定）。
-5. CRITICAL: 检查报告中的 sources（搜索来源）是否与 query 主题相关。如果 sources 全是与 query 无关的网页（如搜"实习"却返回"科技趋势"），必须标记为 major/critical issue，并说明搜索内容与查询意图不匹配。
+Review requirements:
+1. Break the query down into a list of sub-topics that should be covered.
+2. Check one by one whether each sub-topic is adequately discussed in the report.
+3. Check for obvious bias (presenting only the pro side and ignoring the con side).
+4. Check temporal coverage (historical background, current state, future trends, depending on what the query needs).
+5. CRITICAL: check whether the report's sources (search sources) are relevant to the query topic. If the sources are all unrelated pages (e.g. searching "internships" returns "technology trends"), flag it as a major/critical issue and state that the search content does not match the query intent.
 
-请按以下 JSON 格式输出（不要有任何额外文字）：
+Output in the following JSON format (no extra text):
 {
   "score": float,
   "issues": [
@@ -227,14 +227,14 @@ PROMPT_COVERAGE = """请对以下研究报告的【覆盖完整度】评分。
   ]
 }
 
---- 原始问题 ---
+--- Original question ---
 {query}
 
---- 研究报告 ---
+--- Research report ---
 {content}
 """
 
-# 维度 → Prompt 映射
+# Dimension -> prompt mapping
 DIMENSION_PROMPTS: dict[Dimension, str] = {
     Dimension.FACTUAL: PROMPT_FACTUAL,
     Dimension.HALLUCINATION: PROMPT_HALLUCINATION,
@@ -245,15 +245,15 @@ DIMENSION_PROMPTS: dict[Dimension, str] = {
 
 
 # ============================================================================
-# Red Agent 实现
+# Red Agent implementation
 # ============================================================================
 
 class RedAgent:
-    """Red Agent — 五维度对抗攻击器。
+    """Red Agent — five-dimension adversarial attacker.
 
     Attributes:
-        policy: VLLMPolicy 实例，提供 LLM 调用能力。
-        max_tokens: 单维度评估的最大输出 token 数。
+        policy: a VLLMPolicy instance providing LLM-call capability.
+        max_tokens: maximum output tokens for a single dimension evaluation.
     """
 
     def __init__(
@@ -264,15 +264,15 @@ class RedAgent:
         max_sources: int = 15,
         extra_system: str = "",
     ):
-        """初始化 Red Agent。
+        """Initialize the Red Agent.
 
         Args:
-            policy: 任意实现了 __call__(messages:list) -> OpenAICompatibleDict 的对象。
-            max_tokens: 每个维度评估的最大输出长度。
-            max_report_chars: 送审的报告最大字符数（默认 4000 保持原行为；财报场景应调大，
-                              否则只审查报告开头）。
-            max_sources: 送审的来源条数上限。
-            extra_system: 追加到 system prompt 的领域审查指令（如财报数字核对规则）。
+            policy: any object implementing __call__(messages: list) -> OpenAICompatibleDict.
+            max_tokens: maximum output length for each dimension evaluation.
+            max_report_chars: maximum report characters submitted for review (default 4000 keeps the original behavior;
+                              raise it for financial-filing scenarios, otherwise only the start of the report is reviewed).
+            max_sources: upper bound on the number of sources submitted for review.
+            extra_system: domain review instructions appended to the system prompt (e.g. rules for checking filing figures).
         """
         self.policy = policy
         self.max_tokens = max_tokens
@@ -282,33 +282,33 @@ class RedAgent:
 
     @trace_agent(name="red_agent.attack", tags=["m5", "red", "adversarial"])
     async def attack(self, report: ResearchReport) -> RedVerdict:
-        """对研究报告执行五维度攻击。
+        """Run the five-dimension attack on a research report.
 
-        执行流程：
-        1. 并行（顺序 await 但可外部 gather）调用五个维度的评估 Prompt。
-        2. 解析每个维度的 JSON 输出，提取分数和 issues。
-        3. 汇总生成 RedVerdict。
+        Flow:
+        1. Call the five dimension prompts (awaited sequentially but can be gathered externally).
+        2. Parse each dimension's JSON output and extract scores and issues.
+        3. Aggregate into a RedVerdict.
 
         Args:
-            report: 待审查的研究报告。
+            report: the research report to review.
 
         Returns:
-            RedVerdict: 包含五维度分数、overall_score 和 issues 列表。
+            RedVerdict: contains the five dimension scores, overall_score and the issues list.
         """
         dimension_scores: dict[Dimension, float] = {}
         all_issues: list[Issue] = []
         raw_feedbacks: list[str] = []
 
-        # 截断报告内容，避免单条 prompt 超过上下文限制
+        # Truncate the report to keep a single prompt within the context limit
         limit = self.max_report_chars
         content_truncated = report.content[:limit] if len(report.content) > limit else report.content
         if len(report.content) > limit:
-            content_truncated += f"\n\n[报告已截断，仅显示前 {limit} 字符]"
+            content_truncated += f"\n\n[Report truncated; only the first {limit} characters are shown]"
 
         sources_text = self._format_sources(report.sources, max_items=self.max_sources)
 
         for dim, prompt_template in DIMENSION_PROMPTS.items():
-            # 使用安全替换，避免 report.content/sources_text 中的 { 被 format 误解析
+            # Use safe substitution so a { in report.content/sources_text is not misparsed by format
             prompt = prompt_template
             prompt = prompt.replace("{query}", report.query)
             prompt = prompt.replace("{content}", content_truncated)
@@ -319,7 +319,7 @@ class RedAgent:
             ]
 
             try:
-                # 临时调大 max_tokens 以容纳长输出
+                # Temporarily raise max_tokens to fit long output
                 old_max = getattr(self.policy, "max_tokens", None)
                 if old_max is not None:
                     self.policy.max_tokens = self.max_tokens
@@ -333,14 +333,14 @@ class RedAgent:
                 dimension_scores[dim] = score
                 all_issues.extend(issues)
             except Exception as e:
-                # 解析或调用失败时返回保守分数，避免循环崩溃
+                # On parse or call failure return a conservative score so the loop does not crash
                 dimension_scores[dim] = 5.0
                 raw_feedbacks.append(f"[{dim.value}]\nERROR: {e}\n")
                 all_issues.append(
                     Issue(
                         severity=Severity.MINOR,
                         dimension=dim,
-                        description=f"Red Agent 解析失败: {e}",
+                        description=f"Red Agent parse failure: {e}",
                         location="",
                         fix_type=FixType.IN_PLACE,
                     )
@@ -355,31 +355,31 @@ class RedAgent:
         )
 
     def _format_sources(self, sources: list[dict], max_items: int = 15) -> str:
-        """将来源列表格式化为文本，供 Prompt 使用。截断以避免上下文膨胀。"""
+        """Format the source list as text for the prompt. Truncated to avoid context bloat."""
         if not sources:
-            return "（无来源）"
+            return "(no sources)"
         lines = []
         for i, s in enumerate(sources[:max_items], 1):
-            title = s.get("title", "未知标题")
+            title = s.get("title", "Unknown title")
             url = s.get("url", "")
-            snippet = s.get("snippet", "")[:300]  # 截断 snippet
+            snippet = s.get("snippet", "")[:300]  # truncate snippet
             lines.append(f"[{s.get('id', i)}] {title}\nURL: {url}\nSnippet: {snippet}\n")
         if len(sources) > max_items:
-            lines.append(f"... 还有 {len(sources) - max_items} 个来源未显示")
+            lines.append(f"... {len(sources) - max_items} more sources not shown")
         return "\n".join(lines)
 
     def _parse_json_output(self, raw: str, dimension: Dimension) -> tuple[float, list[Issue]]:
-        """解析模型 JSON 输出，提取分数和 issues。
+        """Parse the model's JSON output and extract the score and issues.
 
-        兼容策略：
-        1. 先尝试从整个输出中提取第一个 JSON 对象。
-        2. 如果失败，尝试用正则提取 ```json ... ``` 块。
-        3. 如果仍失败，尝试修复常见 JSON 格式错误（如尾随逗号、单引号）。
-        4. 如果仍失败，返回保守分数 5.0 和空 issues。
+        Tolerance strategy:
+        1. First try to extract the first JSON object from the whole output.
+        2. If that fails, try a regex for a ```json ... ``` block.
+        3. If that still fails, try to repair common JSON errors (trailing commas, single quotes).
+        4. If that still fails, return the conservative score 5.0 and empty issues.
 
         Args:
-            raw: 模型原始输出文本。
-            dimension: 当前解析的维度，用于构造 Issue。
+            raw: raw model output text.
+            dimension: the dimension being parsed, used to build Issues.
 
         Returns:
             (score, issues_list)
@@ -388,14 +388,14 @@ class RedAgent:
         if not raw:
             return 5.0, []
 
-        # 尝试 1: 直接解析整个文本
+        # Attempt 1: parse the whole text directly
         try:
             data = json.loads(raw)
             return self._extract_from_dict(data, dimension)
         except json.JSONDecodeError:
             pass
 
-        # 尝试 2: 提取 ```json 代码块
+        # Attempt 2: extract a ```json code block
         code_block_pattern = re.compile(r"```(?:json)?\s*(.*?)\s*```", re.DOTALL)
         matches = code_block_pattern.findall(raw)
         for m in matches:
@@ -405,7 +405,7 @@ class RedAgent:
             except json.JSONDecodeError:
                 continue
 
-        # 尝试 3: 提取第一个 { ... } 块（可能嵌套）
+        # Attempt 3: extract the first { ... } block (possibly nested)
         brace_match = re.search(r"\{.*\}", raw, re.DOTALL)
         if brace_match:
             try:
@@ -414,7 +414,7 @@ class RedAgent:
             except json.JSONDecodeError:
                 pass
 
-        # 尝试 4: 修复常见 JSON 格式错误后重试
+        # Attempt 4: retry after repairing common JSON errors
         fixed = self._fix_common_json_errors(raw)
         if fixed:
             for candidate in [fixed, fixed[fixed.find("{"):fixed.rfind("}")+1]]:
@@ -424,39 +424,39 @@ class RedAgent:
                 except json.JSONDecodeError:
                     continue
 
-        # 全部失败：保守返回
+        # All failed: return conservatively
         return 5.0, []
 
     def _fix_common_json_errors(self, raw: str) -> str | None:
-        """修复常见的 JSON 格式错误。"""
-        # 提取最外层的大括号内容
+        """Repair common JSON format errors."""
+        # Extract the outermost braces' content
         start = raw.find("{")
         end = raw.rfind("}")
         if start == -1 or end == -1 or end <= start:
             return None
         text = raw[start:end+1]
         
-        # 修复 1: 移除注释
+        # Fix 1: remove comments
         text = re.sub(r"//.*?\n", "\n", text)
         text = re.sub(r"/\*.*?\*/", "", text, flags=re.DOTALL)
         
-        # 修复 2: 单引号 → 双引号
+        # Fix 2: single quotes -> double quotes
         text = text.replace("'", '"')
         
-        # 修复 3: 移除尾随逗号（对象/数组最后一个元素后的逗号）
+        # Fix 3: remove trailing commas (after the last element of an object/array)
         text = re.sub(r",(\s*[}\]])", r"\1", text)
         
-        # 修复 4: 修复未转义的换行符 inside 字符串（简单 heuristic）
-        # 如果行内有 "..." 且中间有换行，可能导致解析失败
+        # Fix 4: fix unescaped newlines inside strings (simple heuristic)
+        # A line containing "..." with a newline inside may break parsing
         
         return text
 
     def _extract_from_dict(self, data: dict, dimension: Dimension) -> tuple[float, list[Issue]]:
-        """从解析后的 dict 中提取 score 和 issues。"""
+        """Extract the score and issues from the parsed dict."""
         score = float(data.get("score", 5.0))
         score = max(0.0, min(10.0, score))
 
-        # severity/fix_type 容错映射
+        # Fault-tolerant severity/fix_type mapping (Chinese aliases kept intentionally)
         sev_map = {
             "critical": Severity.CRITICAL, "严重": Severity.CRITICAL,
             "major": Severity.MAJOR, "重要": Severity.MAJOR, "较大": Severity.MAJOR,
@@ -470,7 +470,7 @@ class RedAgent:
 
         issues: list[Issue] = []
         raw_issues = data.get("issues", [])
-        # 兼容 issues 是字符串而不是列表的情况
+        # Tolerate issues being a string rather than a list
         if isinstance(raw_issues, str):
             raw_issues = []
         for item in raw_issues:

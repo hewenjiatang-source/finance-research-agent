@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""src/core — DeepResearch Agent 核心运行层。"""
+"""src/core — core runtime layer of the DeepResearch Agent."""
 
 from .runner import initialize_modules, load_config, run_research, save_report, setup_logging
 from .judge import LLMJudge

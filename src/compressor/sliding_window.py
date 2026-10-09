@@ -1,11 +1,11 @@
 """
-Sliding Window Compressor 模块：FIFO 截断旧消息
+Sliding Window Compressor module: FIFO truncation of old messages
 
-设计决策：
-1. 复用项目一 VLLMPolicy._truncate_messages 的核心思想，但提取为独立模块
-2. 改进点：(a) 支持按 token 估算（而非纯字符），(b) 更精细的角色保留策略
-3. 截断粒度为"整消息丢弃"，避免在消息中间切断导致语义破碎
-4. 极端情况下对最后一条做内容级截断兜底，但保留至少 500 字符
+Design decisions:
+1. Reuses the core idea of project one's VLLMPolicy._truncate_messages, extracted into a standalone module
+2. Improvements: (a) supports token estimation (not just characters), (b) a finer role-retention policy
+3. Truncation granularity is "drop whole messages", to avoid cutting in the middle of a message and breaking its meaning
+4. In extreme cases the last message is truncated at content level as a fallback, but at least 500 characters are kept
 """
 
 from __future__ import annotations
@@ -18,10 +18,10 @@ logger = logging.getLogger(__name__)
 
 class SlidingWindowCompressor:
     """
-    滑动窗口截断器。
+    Sliding-window truncator.
 
-    按 FIFO 原则丢弃旧消息，优先保留 system prompt 和最近交互，
-    适用于会话历史超出上下文预算时的快速降级。
+    Drops old messages FIFO, keeping the system prompt and recent interaction first;
+    suited to fast degradation when the session history exceeds the context budget.
     """
 
     def __init__(
@@ -32,13 +32,13 @@ class SlidingWindowCompressor:
         min_last_msg_chars: int = 500,
     ) -> None:
         """
-        初始化滑动窗口截断器。
+        Initialize the sliding-window truncator.
 
         Args:
-            max_tokens: 最大允许 token 数
-            char_per_token: 字符/token 换算比（中文混合约 3.0-4.0）
-            min_recent_turns: 至少保留的非 system 消息数
-            min_last_msg_chars: 极端情况下最后一条消息至少保留的字符数
+            max_tokens: maximum allowed tokens
+            char_per_token: characters-per-token conversion ratio (about 3.0-4.0 for mixed Chinese/English)
+            min_recent_turns: minimum number of non-system messages to keep
+            min_last_msg_chars: minimum characters of the last message kept in extreme cases
         """
         self.max_tokens = max_tokens
         self.char_per_token = char_per_token
@@ -49,13 +49,13 @@ class SlidingWindowCompressor:
 
     def compress(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """
-        执行滑动窗口截断。
+        Run sliding-window truncation.
 
         Args:
-            messages: OpenAI 格式的消息列表，每条 dict 含 role/content
+            messages: list of OpenAI-format messages, each dict with role/content
 
         Returns:
-            截断后的消息列表
+            the truncated list of messages
         """
         self._last_truncated = False
         max_chars = int(self.max_tokens * self.char_per_token)
@@ -68,13 +68,13 @@ class SlidingWindowCompressor:
         max_chars: int,
     ) -> list[dict[str, Any]]:
         """
-        核心截断逻辑。
+        Core truncation logic.
 
-        步骤：
-        1. 分离 system 消息与其他消息
-        2. 若总字符数未超限，直接返回
-        3. 从旧消息开始丢弃，直到字符数达标或只剩 min_recent_turns 条
-        4. 极端情况下截断最后一条内容
+        Steps:
+        1. separate system messages from the others
+        2. if the total character count is within the limit, return directly
+        3. drop from the oldest messages until the character count fits or only min_recent_turns remain
+        4. in extreme cases truncate the content of the last message
         """
         system_msgs = [
             m for m in messages if isinstance(m, dict) and m.get("role") == "system"
@@ -119,7 +119,7 @@ class SlidingWindowCompressor:
                 }
                 return system_msgs + kept
 
-        # 极端情况：即使只保留 system + 最后 N 条也超限
+        # extreme case: still over the limit even with only system + the last N kept
         after_chars = self._count_chars(system_msgs + kept)
         if after_chars > max_chars and kept:
             last_msg = kept[-1]
@@ -153,7 +153,7 @@ class SlidingWindowCompressor:
         return system_msgs + kept
 
     def _count_chars(self, messages: list[dict[str, Any]]) -> int:
-        """计算消息列表的总字符数，包含 content/tool_calls/tool metadata。"""
+        """Compute the total character count of a message list, including content/tool_calls/tool metadata."""
         total = 0
         for m in messages:
             if not isinstance(m, dict):
@@ -170,9 +170,9 @@ class SlidingWindowCompressor:
         return total
 
     def get_stats(self) -> dict[str, Any]:
-        """返回最近一次压缩的统计信息。"""
+        """Return the statistics of the most recent compression."""
         return dict(self._last_stats)
 
     def was_truncated(self) -> bool:
-        """返回最近一次压缩是否发生了截断。"""
+        """Return whether the most recent compression caused truncation."""
         return self._last_truncated

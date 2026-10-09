@@ -1,4 +1,4 @@
-"""Tools 子包：外部能力封装（搜索、论文阅读、代码执行、网页浏览、文件读取、计算、笔记等）。"""
+"""Tools subpackage: wrappers for external capabilities (search, paper reading, code execution, browsing, file reading, calculation, notes, ...)."""
 from __future__ import annotations
 
 from .web_search import WebSearchTool, MockWebSearchTool, BaseWebSearchTool
@@ -11,7 +11,7 @@ from .notepad import NotepadTool, NotepadEntry
 from .sec_edgar import SecClient, SecFilingsTool, SecFactsTool, SecFilingTool, create_sec_tools
 
 __all__ = [
-    # 搜索与阅读
+    # Search and reading
     "WebSearchTool",
     "MockWebSearchTool",
     "BaseWebSearchTool",
@@ -21,13 +21,13 @@ __all__ = [
     "BaseBrowserTool",
     "get_browser_tool",
     "FileReaderTool",
-    # 计算与执行
+    # Calculation and execution
     "CodeSandboxTool",
     "CalculatorTool",
-    # 辅助
+    # Helpers
     "NotepadTool",
     "NotepadEntry",
-    # 财报研究（SEC EDGAR）
+    # Financial filings research (SEC EDGAR)
     "SecClient",
     "SecFilingsTool",
     "SecFactsTool",

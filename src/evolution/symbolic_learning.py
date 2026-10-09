@@ -1,14 +1,14 @@
 """
-M6 自进化引擎 — Symbolic Learning（Prompt 自优化）
+M6 self-evolution engine — Symbolic Learning (prompt self-optimization)
 
-SymbolicLearner 从失败轨迹中提取系统性错误模式，生成改进指令并更新 prompt。
-具备版本管理和自动回滚机制，确保 prompt 演化过程的安全性。
+SymbolicLearner extracts systematic error patterns from failed trajectories, generates improvement instructions and updates prompts.
+It has version management and automatic rollback to keep prompt evolution safe.
 
-设计决策：
-1. 错误模式提取：由 LLM 分析失败轨迹，归纳共性错误类型。
-2. Prompt 优化：将错误模式转化为具体的 prompt 改进指令（如"增加 XX 约束"）。
-3. 版本管理：保留最近 10 个 prompt 版本，支持快速回滚。
-4. 自动回滚：新 prompt 导致性能下降 >5% 时自动回退到上一版本。
+Design decisions:
+1. Error-pattern extraction: an LLM analyzes failed trajectories and summarizes common error types.
+2. Prompt optimization: turn error patterns into concrete prompt-improvement instructions (e.g. "add an XX constraint").
+3. Version management: keep the latest 10 prompt versions, enabling quick rollback.
+4. Automatic rollback: revert to the previous version when a new prompt causes a performance drop >5%.
 """
 from __future__ import annotations
 
@@ -22,22 +22,22 @@ __all__ = ["SymbolicLearner"]
 
 
 # ============================================================================
-# Prompt 模板
+# Prompt templates
 # ============================================================================
 
 SYSTEM_SYMBOLIC = (
-    "你是一位 Prompt Engineering 专家。你的任务是分析 AI Agent 的失败轨迹，"
-    "提取系统性错误模式，并生成精确的 Prompt 改进指令。"
+    "You are a Prompt Engineering expert. Your task is to analyze failed trajectories of an AI Agent, "
+    "extract systematic error patterns, and generate precise prompt-improvement instructions."
 )
 
-PROMPT_EXTRACT_PATTERNS = """请分析以下失败轨迹，提取系统性错误模式。
+PROMPT_EXTRACT_PATTERNS = """Analyze the following failed trajectories and extract systematic error patterns.
 
-要求：
-1. 只关注重复出现的错误类型（单次偶发错误忽略）。
-2. 每个错误模式需包含：错误描述、发生频率、根因分析。
-3. 按严重程度排序（严重 → 轻微）。
+Requirements:
+1. Focus only on recurring error types (ignore one-off errors).
+2. Each error pattern must include: error description, frequency, root-cause analysis.
+3. Sort by severity (severe -> minor).
 
-请按以下 JSON 格式输出：
+Output in the following JSON format:
 {
   "patterns": [
     {
@@ -50,48 +50,48 @@ PROMPT_EXTRACT_PATTERNS = """请分析以下失败轨迹，提取系统性错误
   ]
 }
 
---- 失败轨迹列表 ---
+--- List of failed trajectories ---
 {trajectories}
 """
 
-PROMPT_OPTIMIZE_PROMPT = """请根据以下错误模式，优化给定的 Prompt。
+PROMPT_OPTIMIZE_PROMPT = """Optimize the given prompts according to the following error patterns.
 
-优化原则：
-1. 保持 prompt 的核心目标不变。
-2. 针对每个错误模式，增加具体的约束或示例。
-3. 避免 prompt 过长（控制在 2000 token 以内）。
-4. 输出优化后的完整 prompt。
+Optimization principles:
+1. Keep the prompt's core goal unchanged.
+2. For each error pattern, add concrete constraints or examples.
+3. Avoid overly long prompts (keep within 2000 tokens).
+4. Output the complete optimized prompt.
 
-请按以下 JSON 格式输出：
+Output in the following JSON format:
 {
   "optimized_prompts": {
-    "prompt_name": "string",   // 如 "system_prompt"
+    "prompt_name": "string",   // e.g. "system_prompt"
     "new_content": "string",
-    "changes": ["string"]      // 变更说明列表
+    "changes": ["string"]      // list of change descriptions
   }
 }
 
---- 错误模式 ---
+--- Error patterns ---
 {patterns}
 
---- 当前 Prompts ---
+--- Current prompts ---
 {current_prompts}
 """
 
 
 # ============================================================================
-# SymbolicLearner 实现
+# SymbolicLearner implementation
 # ============================================================================
 
 class SymbolicLearner:
-    """Prompt 自优化器，基于失败轨迹的符号学习。
+    """Prompt self-optimizer: symbolic learning based on failed trajectories.
 
     Attributes:
-        policy: VLLMPolicy 实例。
-        max_versions: 保留的最大 prompt 版本数。
-        rollback_threshold: 性能下降触发回滚的阈值（比例）。
-        _prompt_versions: prompt 版本历史栈。
-        _performance_history: 性能记录列表，用于回滚决策。
+        policy: a VLLMPolicy instance.
+        max_versions: maximum number of prompt versions kept.
+        rollback_threshold: performance-drop threshold (ratio) that triggers rollback.
+        _prompt_versions: prompt version history stack.
+        _performance_history: list of performance records, used for rollback decisions.
     """
 
     def __init__(
@@ -111,36 +111,36 @@ class SymbolicLearner:
         failed_trajectories: list[dict[str, Any]],
         current_prompts: dict[str, str],
     ) -> dict[str, str]:
-        """从失败轨迹中提取错误模式并优化 prompt。
+        """Extract error patterns from failed trajectories and optimize prompts.
 
-        执行流程：
-        1. 将失败轨迹压缩为文本摘要。
-        2. 调用 LLM 提取系统性错误模式。
-        3. 调用 LLM 基于错误模式优化 prompt。
-        4. 保存当前版本到历史栈。
+        Flow:
+        1. Compress failed trajectories into a text summary.
+        2. Call the LLM to extract systematic error patterns.
+        3. Call the LLM to optimize prompts based on the error patterns.
+        4. Save the current version onto the history stack.
 
         Args:
-            failed_trajectories: 失败轨迹列表，每个元素为 collect() 输出格式。
-            current_prompts: 当前使用的 prompt 字典，键为 prompt 名称。
+            failed_trajectories: list of failed trajectories, each in the collect() output format.
+            current_prompts: dict of prompts currently in use, keyed by prompt name.
 
         Returns:
-            优化后的 prompt 字典。
+            Dict of optimized prompts.
         """
         if not failed_trajectories:
             return copy.deepcopy(current_prompts)
 
-        # Step 1: 压缩失败轨迹
+        # Step 1: compress failed trajectories
         traj_text = self._compress_trajectories(failed_trajectories)
 
-        # Step 2: 提取错误模式
+        # Step 2: extract error patterns
         patterns = await self._extract_patterns(traj_text)
         if not patterns:
             return copy.deepcopy(current_prompts)
 
-        # Step 3: 优化 prompt
+        # Step 3: optimize prompts
         new_prompts = await self._generate_optimized_prompts(patterns, current_prompts)
 
-        # Step 4: 保存版本
+        # Step 4: save the version
         self._save_version(current_prompts)
 
         return new_prompts
@@ -150,14 +150,14 @@ class SymbolicLearner:
         new_prompts: dict[str, str],
         performance: dict[str, float],
     ) -> dict[str, str]:
-        """检查性能，若下降超过阈值则回滚到上一版本。
+        """Check performance and roll back to the previous version if it dropped beyond the threshold.
 
         Args:
-            new_prompts: 新应用的 prompts。
-            performance: 当前轮次性能指标，必须包含 "avg_score" 键。
+            new_prompts: the newly applied prompts.
+            performance: current-round performance metrics; must contain the "avg_score" key.
 
         Returns:
-            若回滚则返回上一版本 prompts，否则返回 new_prompts。
+            The previous version's prompts if rolled back, otherwise new_prompts.
         """
         self._performance_history.append(performance)
 
@@ -173,35 +173,35 @@ class SymbolicLearner:
         if prev_score > 0.0:
             drop = (prev_score - curr_score) / prev_score
             if drop > self.rollback_threshold:
-                # 触发回滚
+                # Trigger rollback
                 rolled_back = self._rollback_one()
                 if rolled_back is not None:
-                    # 回退 performance_history
+                    # Roll back performance_history
                     self._performance_history.pop()
                     return rolled_back
 
         return new_prompts
 
     # ------------------------------------------------------------------
-    # 内部方法
+    # Internal methods
     # ------------------------------------------------------------------
 
     def _compress_trajectories(self, trajectories: list[dict[str, Any]]) -> str:
-        """将失败轨迹压缩为文本摘要，控制 prompt 长度。"""
+        """Compress failed trajectories into a text summary, keeping the prompt length under control."""
         parts = []
-        for i, traj in enumerate(trajectories[:20]):  # 最多取 20 条
+        for i, traj in enumerate(trajectories[:20]):  # take at most 20
             query = traj.get("query", "")
             final_score = traj.get("final_score", 0.0)
             num_searches = traj.get("num_searches", 0)
             content_preview = traj.get("report_content", "")[:300]
             parts.append(
-                f"[案例 {i+1}] query={query}, score={final_score}, searches={num_searches}\n"
-                f"内容预览: {content_preview}\n"
+                f"[Case {i+1}] query={query}, score={final_score}, searches={num_searches}\n"
+                f"Content preview: {content_preview}\n"
             )
         return "\n".join(parts)
 
     async def _extract_patterns(self, traj_text: str) -> list[dict[str, str]]:
-        """调用 LLM 提取系统性错误模式。"""
+        """Call the LLM to extract systematic error patterns."""
         prompt = PROMPT_EXTRACT_PATTERNS.format(trajectories=traj_text)
         messages = [
             {"role": "system", "content": SYSTEM_SYMBOLIC},
@@ -220,7 +220,7 @@ class SymbolicLearner:
         patterns: list[dict[str, str]],
         current_prompts: dict[str, str],
     ) -> dict[str, str]:
-        """基于错误模式生成优化后的 prompts。"""
+        """Generate optimized prompts from the error patterns."""
         patterns_text = json.dumps(patterns, ensure_ascii=False, indent=2)
         current_text = json.dumps(current_prompts, ensure_ascii=False, indent=2)
         prompt = PROMPT_OPTIMIZE_PROMPT.format(
@@ -235,16 +235,16 @@ class SymbolicLearner:
             resp = self.policy(messages)
             raw = resp.content or ""
             data = self._parse_json(raw)
-            # 解析优化后的 prompts
+            # Parse the optimized prompts
             optimized = data.get("optimized_prompts", {})
             if isinstance(optimized, dict) and "new_content" in optimized:
-                # 单 prompt 优化
+                # Single-prompt optimization
                 name = optimized.get("prompt_name", "system_prompt")
                 result = copy.deepcopy(current_prompts)
                 result[name] = optimized["new_content"]
                 return result
             elif isinstance(optimized, list):
-                # 多 prompt 优化
+                # Multi-prompt optimization
                 result = copy.deepcopy(current_prompts)
                 for item in optimized:
                     name = item.get("prompt_name", "system_prompt")
@@ -255,22 +255,22 @@ class SymbolicLearner:
             return copy.deepcopy(current_prompts)
 
     def _save_version(self, prompts: dict[str, str]) -> None:
-        """保存当前 prompt 版本到历史栈，超出限制时淘汰最旧版本。"""
+        """Save the current prompt version onto the history stack, evicting the oldest when over the limit."""
         self._prompt_versions.append(copy.deepcopy(prompts))
         while len(self._prompt_versions) > self.max_versions:
             self._prompt_versions.pop(0)
 
     def _rollback_one(self) -> dict[str, str] | None:
-        """回滚到上一版本。"""
+        """Roll back to the previous version."""
         if len(self._prompt_versions) < 2:
             return None
-        # 当前版本已经在栈顶（由 _save_version 保存）
-        # 回滚 = 丢弃最新版本，返回倒数第二个
+        # The current version is already at the top of the stack (saved by _save_version)
+        # Rollback = discard the latest version and return the second-to-last
         self._prompt_versions.pop()
         return copy.deepcopy(self._prompt_versions[-1])
 
     def _parse_json(self, raw: str) -> dict[str, Any]:
-        """鲁棒 JSON 解析。"""
+        """Robust JSON parsing."""
         raw = raw.strip()
         if not raw:
             return {}
@@ -295,7 +295,7 @@ class SymbolicLearner:
         return {}
 
     def save_versions_to_disk(self, dir_path: str) -> None:
-        """将版本历史持久化到磁盘。"""
+        """Persist the version history to disk."""
         os.makedirs(dir_path, exist_ok=True)
         for i, version in enumerate(self._prompt_versions):
             path = os.path.join(dir_path, f"prompt_v{i:03d}.json")
@@ -303,7 +303,7 @@ class SymbolicLearner:
                 json.dump(version, f, ensure_ascii=False, indent=2)
 
     def load_versions_from_disk(self, dir_path: str) -> None:
-        """从磁盘加载版本历史。"""
+        """Load the version history from disk."""
         if not os.path.isdir(dir_path):
             return
         files = sorted(

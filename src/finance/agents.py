@@ -1,4 +1,4 @@
-"""财报研究场景的 Agent 子类：只覆盖 prompt / 工具推荐 / 证据目录，不改框架主循环。"""
+"""Agent subclasses for the finance scenario: override only the prompt / tool recommendations / evidence catalog, not the framework's main loop."""
 from __future__ import annotations
 
 import re
@@ -36,7 +36,7 @@ class FinanceResearcherAgent(ResearcherAgent):
         return researcher_system_prompt(self.language, self.max_tool_calls)
 
     def _is_non_searchable(self, task: SubTask, context: dict) -> bool:
-        # 金融场景下"直接分析"会放开凭记忆作答，必须关掉
+        # in the finance scenario "direct analysis" would allow answering from memory, so it must be off
         return False
 
     def _recommend(self, task: SubTask) -> list[str]:
@@ -95,7 +95,7 @@ class FinanceResearcherAgent(ResearcherAgent):
         return "web_search"
 
     def _is_tool_failure_explanation(self, content: str) -> bool:
-        # 长报告里偶然出现"无法获取"是正常的 Gaps 描述，只有很短的回复才视为工具故障
+        # a long report may legitimately say "unable to retrieve" in its Gaps section; only very short replies count as a tool failure
         if not content or len(content) > 600:
             return False
         return super()._is_tool_failure_explanation(content)
@@ -115,7 +115,7 @@ _CITE_RE = re.compile(r"\[(\d+)\]")
 
 
 class FinanceSummarizerAgent(SummarizerAgent):
-    """合成器：把证据目录放进 prompt，使 [n] 与账本 id 一致；报告带上账本来源。"""
+    """Summarizer: puts the evidence catalog into the prompt so [n] matches the ledger ids; the report carries the ledger's sources."""
 
     def __init__(self, name, policy, tools=None, ledger: EvidenceLedger | None = None, language: str = "zh",
                  catalog_chars: int = 240):

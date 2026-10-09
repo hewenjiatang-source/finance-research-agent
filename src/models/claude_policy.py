@@ -1,32 +1,32 @@
 """
-Claude Policy — Anthropic Messages API 封装
+Claude Policy — wrapper for the Anthropic Messages API
 
-与 VLLMPolicy 保持相同的对外契约，使上层模块（Planner / Researcher / Summarizer /
-Red-Blue / Compressor / Judge）无需任何改动即可切换到 Claude：
+Keeps the same external contract as VLLMPolicy, so upper-layer modules (Planner / Researcher / Summarizer /
+Red-Blue / Compressor / Judge) can switch to Claude without any change:
 
-  - ``__call__(messages) -> OpenAICompatibleDict``  （role / content / tool_calls）
-  - ``set_tools(tools)``  接受 OpenAI function-calling schema
-  - ``tools`` / ``was_truncated`` 属性
-  - 上下文超限抛 ``RuntimeError("[CONTEXT_LENGTH_EXCEEDED] ...")``
+  - ``__call__(messages) -> OpenAICompatibleDict``  (role / content / tool_calls)
+  - ``set_tools(tools)``  accepts OpenAI function-calling schemas
+  - ``tools`` / ``was_truncated`` attributes
+  - context overflow raises ``RuntimeError("[CONTEXT_LENGTH_EXCEEDED] ...")``
 
-内部负责 OpenAI 消息格式 <-> Anthropic Messages 格式互转：
+Internally converts between the OpenAI message format and the Anthropic Messages format:
 
-  * system 消息抽出为顶层 ``system`` 参数
-  * assistant.tool_calls  -> ``tool_use`` 内容块
-  * role=tool 消息        -> ``tool_result`` 块，同一轮的多个结果合并进 **一条** user 消息
-  * 修复孤儿 tool_result / 缺失 tool_result（截断或重试后常见，会导致 400）
-  * 空文本块、首条非 user、末条为 assistant 等 API 不接受的形态
+  * system messages are pulled out into the top-level ``system`` parameter
+  * assistant.tool_calls  -> ``tool_use`` content blocks
+  * role=tool messages    -> ``tool_result`` blocks; several results of one turn are merged into **one** user message
+  * repairs orphan / missing tool_result (common after truncation or retries, would cause a 400)
+  * shapes the API rejects: empty text blocks, first message not user, last message assistant, etc.
 
-设计取舍（均为刻意为之）:
-  1. ``anthropic`` SDK 懒加载，也可以通过 ``client=`` 注入（单测用假 client）。
-  2. 只发送 ``temperature``，默认不发送 ``top_p``：部分模型不允许同时指定两者。
-     若 API 因采样参数返回 400，自动去掉采样参数重试一次并记住。
-  3. 不可重试的确定性错误（401/403/404）直接抛 RuntimeError，不像旧后端那样
-     返回"假 assistant"继续空转；瞬时错误（限流/过载/网络）保持旧行为返回
-     ``Error: ...`` 让上层有机会继续。SDK 自带指数退避重试（max_retries）。
-  4. 若模型返回 thinking 块，原样序列化到 ``reasoning_content``（带前缀），
-     下一轮回传时还原为完整 content blocks，保证带工具的多轮思考不会 400。
-     ResearcherAgent 已经会把 reasoning_content 透传回消息历史，无需改动。
+Design trade-offs (all deliberate):
+  1. The ``anthropic`` SDK is lazily imported and can also be injected via ``client=`` (tests use a fake client).
+  2. Only ``temperature`` is sent, ``top_p`` is not sent by default: some models do not allow both.
+     If the API returns 400 because of sampling parameters, retry once without them and remember that.
+  3. Non-retryable deterministic errors (401/403/404) raise RuntimeError directly, instead of
+     returning a "fake assistant" and spinning like the old backend; transient errors (rate limit / overload / network) keep the old behavior of returning
+     an ``Error: ...`` message so the upper layer can carry on. The SDK has its own exponential-backoff retries (max_retries).
+  4. If the model returns thinking blocks, they are serialized verbatim into ``reasoning_content`` (with a prefix);
+     on the next turn they are restored to full content blocks, so multi-turn thinking with tools does not 400.
+     ResearcherAgent already passes reasoning_content through to the message history, so nothing needs to change.
 """
 from __future__ import annotations
 
@@ -50,16 +50,16 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_CLAUDE_MODEL = "claude-sonnet-5-5"
 
-# thinking 块载体前缀：放在 reasoning_content 里跨轮回传
+# thinking-block carrier prefix: placed in reasoning_content to travel across turns
 _CARRIER_PREFIX = "__claude_blocks__:"
 _PLACEHOLDER = "(no content)"
 _ID_BAD_CHARS = re.compile(r"[^a-zA-Z0-9_-]")
-# 超过该 max_tokens 改用流式，避免 SDK 对超长非流式请求的限制
+# above this max_tokens, switch to streaming to avoid the SDK's limit on very long non-streaming requests
 _STREAM_THRESHOLD = 16384
 
 
 # ===========================================================================
-# 格式转换（纯函数，便于单测）
+# Format conversion (pure functions, easy to unit test)
 # ===========================================================================
 
 def _clean_id(raw: Any, fallback: str) -> str:
@@ -68,7 +68,7 @@ def _clean_id(raw: Any, fallback: str) -> str:
 
 
 def _block_to_dict(block: Any) -> dict:
-    """把 SDK 返回的内容块（pydantic 对象或 dict）转成可序列化 dict。"""
+    """Convert a content block returned by the SDK (pydantic object or dict) into a serializable dict."""
     if isinstance(block, dict):
         return dict(block)
     dump = getattr(block, "model_dump", None)
@@ -81,10 +81,10 @@ def _block_to_dict(block: Any) -> dict:
 
 
 def _normalize_messages(messages: list) -> list[dict]:
-    """把调用方传入的各种形态消息归一为 OpenAI 风格 dict 列表。
+    """Normalize messages of various shapes passed by the caller into a list of OpenAI-style dicts.
 
-    沿用 VLLMPolicy 的容错：支持 ``("observation", text)`` 元组，
-    过滤环境泄露的 ``task=Task(`` 内容。
+    Keeps VLLMPolicy's tolerance: supports ``("observation", text)`` tuples and
+    filters out leaked ``task=Task(`` environment content.
     """
     out: list[dict] = []
     for m in messages:
@@ -116,7 +116,7 @@ def _normalize_messages(messages: list) -> list[dict]:
 
 
 def to_anthropic_tools(tools: Optional[list[dict]]) -> list[dict]:
-    """OpenAI function schema -> Anthropic tools。已是 Anthropic 格式的原样放行。"""
+    """OpenAI function schema -> Anthropic tools. Schemas already in Anthropic format pass through unchanged."""
     converted: list[dict] = []
     for t in tools or []:
         if not isinstance(t, dict):
@@ -155,16 +155,16 @@ def _text_block(text: str) -> dict:
 
 
 def to_anthropic_messages(messages: list[dict]) -> tuple[str, list[dict]]:
-    """OpenAI 风格消息 -> (system, anthropic messages)。
+    """OpenAI-style messages -> (system, anthropic messages).
 
-    输入需已经过 ``_normalize_messages``。输出满足 Messages API 的结构约束：
-      * 首条为 user，user/assistant 严格交替（同角色相邻自动合并）
-      * 每个 tool_use 在紧随其后的 user 消息里有且仅有一个对应 tool_result，且置于最前
-      * 不含空文本块；末条不是 assistant（避免预填充，新模型不支持）
+    Input must already have gone through ``_normalize_messages``. The output satisfies the structural constraints of the Messages API:
+      * the first message is user, user/assistant strictly alternate (adjacent same-role messages are merged)
+      * every tool_use has exactly one matching tool_result in the user message right after it, placed first
+      * no empty text blocks; the last message is not assistant (avoids prefill, which newer models do not support)
     """
     system_parts: list[str] = []
     turns: list[dict] = []  # {"role": ..., "content": [blocks]}
-    pending_ids: list[str] = []  # 上一条 assistant 中尚未被 tool 消息认领的 tool_use id
+    pending_ids: list[str] = []  # tool_use ids in the previous assistant message not yet claimed by a tool message
     auto_idx = 0
 
     def push(role: str, blocks: list[dict]) -> None:
@@ -218,17 +218,17 @@ def to_anthropic_messages(messages: list[dict]) -> tuple[str, list[dict]]:
         if role == "tool":
             tid = _clean_id(m.get("tool_call_id"), "")
             if not tid and pending_ids:
-                tid = pending_ids[0]  # 缺 id 时按顺序认领
+                tid = pending_ids[0]  # when the id is missing, claim in order
             if tid in pending_ids:
                 pending_ids.remove(tid)
             body = content if content.strip() else _PLACEHOLDER
             push("user", [{"type": "tool_result", "tool_use_id": tid, "content": body}])
             continue
 
-        # user 及其他未知角色
+        # user and other unknown roles
         push("user", [_text_block(content)])
 
-    # ---- 修复 tool_use / tool_result 配对 ----
+    # ---- repair tool_use / tool_result pairing ----
     repaired: list[dict] = []
     for i, turn in enumerate(turns):
         if turn["role"] == "user":
@@ -237,7 +237,7 @@ def to_anthropic_messages(messages: list[dict]) -> tuple[str, list[dict]]:
                 prev_ids = [b["id"] for b in repaired[-1]["content"] if b.get("type") == "tool_use"]
             results = [b for b in turn["content"] if b.get("type") == "tool_result"]
             others = [b for b in turn["content"] if b.get("type") != "tool_result"]
-            # 丢弃孤儿 / 重复的 tool_result
+            # drop orphan / duplicate tool_results
             seen: set[str] = set()
             kept: list[dict] = []
             for r in results:
@@ -245,7 +245,7 @@ def to_anthropic_messages(messages: list[dict]) -> tuple[str, list[dict]]:
                 if rid in prev_ids and rid not in seen:
                     kept.append(r)
                     seen.add(rid)
-            # 为缺失结果补占位，保持 tool_use 顺序
+            # add a placeholder for missing results, keeping tool_use order
             ordered: list[dict] = []
             by_id = {r["tool_use_id"]: r for r in kept}
             for pid in prev_ids:
@@ -265,7 +265,7 @@ def to_anthropic_messages(messages: list[dict]) -> tuple[str, list[dict]]:
         else:
             repaired.append(turn)
 
-        # assistant 带 tool_use 但后面没有 user 消息 -> 补一条
+        # assistant has tool_use but no user message follows -> add one
         if turn["role"] == "assistant":
             has_next = i + 1 < len(turns)
             tu = [b["id"] for b in turn["content"] if b.get("type") == "tool_use"]
@@ -300,9 +300,9 @@ def to_anthropic_messages(messages: list[dict]) -> tuple[str, list[dict]]:
 # ===========================================================================
 
 class ClaudePolicy:
-    """Claude 后端策略（Anthropic Messages API）。"""
+    """Claude backend policy (Anthropic Messages API)."""
 
-    # 复用旧后端的"丢弃旧轮次、保留 system+最近交互"截断逻辑（只依赖 self.was_truncated）
+    # reuse the old backend's "drop old turns, keep system + recent interaction" truncation logic (depends only on self.was_truncated)
     _truncate_messages = VLLMPolicy._truncate_messages
 
     def __init__(
@@ -323,7 +323,7 @@ class ClaudePolicy:
         **ignored: Any,
     ) -> None:
         if ignored:
-            logger.debug("ClaudePolicy 忽略未使用参数: %s", sorted(ignored))
+            logger.debug("ClaudePolicy ignoring unused parameters: %s", sorted(ignored))
         self.model_name = model_name
         self.temperature = temperature
         self.top_p = top_p
@@ -347,13 +347,13 @@ class ClaudePolicy:
         if client is None:
             try:
                 import anthropic
-            except ImportError as e:  # pragma: no cover - 取决于环境
+            except ImportError as e:  # pragma: no cover - environment dependent
                 raise ImportError(
-                    "使用 Claude 后端需要安装 anthropic SDK: pip install anthropic"
+                    "The Claude backend needs the anthropic SDK: pip install anthropic"
                 ) from e
             kwargs: dict[str, Any] = {"max_retries": max_retries, "timeout": timeout}
             if api_key:
-                kwargs["api_key"] = api_key  # 未提供则由 SDK 读取 ANTHROPIC_API_KEY
+                kwargs["api_key"] = api_key  # if not provided, the SDK reads ANTHROPIC_API_KEY
             if base_url:
                 kwargs["base_url"] = base_url
             raw_client = anthropic.Anthropic(**kwargs)
@@ -364,7 +364,7 @@ class ClaudePolicy:
 
     # ------------------------------------------------------------------
     def set_tools(self, tools: list[dict]) -> None:
-        """注册可用工具（OpenAI function-calling schema，内部转换）。"""
+        """Register available tools (OpenAI function-calling schema, converted internally)."""
         self.tools = tools
 
     # ------------------------------------------------------------------
@@ -384,7 +384,7 @@ class ClaudePolicy:
         anth_tools = to_anthropic_tools(tools)
         if anth_tools:
             req["tools"] = anth_tools
-            req["tool_choice"] = {"type": "auto"}  # any/tool 在新模型上会 400，只用 auto
+            req["tool_choice"] = {"type": "auto"}  # any/tool return 400 on newer models, use auto only
         req.update(self.extra_params)
         return req
 
@@ -408,7 +408,7 @@ class ClaudePolicy:
         norm = _normalize_messages(messages)
         norm = self._truncate_messages(norm, max_chars=self.max_input_chars)
         system, msgs = to_anthropic_messages(norm)
-        tools = self.tools  # 读一次，避免并发修改
+        tools = self.tools  # read once, to avoid concurrent modification
         req = self._build_request(system, msgs, tools)
 
         try:
@@ -416,7 +416,7 @@ class ClaudePolicy:
                 resp = self._send(req)
             except Exception as e:
                 if self._is_sampling_error(e) and not self._omit_sampling:
-                    logger.warning("模型拒绝采样参数，去掉 temperature/top_p 后重试: %s", e)
+                    logger.warning("Model rejected sampling parameters; retrying without temperature/top_p: %s", e)
                     self._omit_sampling = True
                     req.pop("temperature", None)
                     req.pop("top_p", None)
@@ -446,7 +446,7 @@ class ClaudePolicy:
             if status in (401, 403, 404):
                 raise RuntimeError(f"[CLAUDE_API_FATAL status={status}] {err}") from e
 
-            # 瞬时错误（SDK 已按 max_retries 退避重试过）：保持旧后端行为
+            # transient error (the SDK already retried with backoff per max_retries): keep the old backend's behavior
             return OpenAICompatibleDict(role="assistant", content=f"Error: {err}", tool_calls=[])
 
     # ------------------------------------------------------------------
@@ -465,7 +465,7 @@ class ClaudePolicy:
         if stop == "model_context_window_exceeded":
             raise RuntimeError("[CONTEXT_LENGTH_EXCEEDED] model_context_window_exceeded")
         if stop == "max_tokens":
-            logger.warning("Claude 输出触达 max_tokens=%s，内容可能被截断", self.max_tokens)
+            logger.warning("Claude output hit max_tokens=%s; content may be truncated", self.max_tokens)
 
         text_parts: list[str] = []
         tool_calls: list[OpenAICompatibleDict] = []

@@ -1,16 +1,16 @@
 """
-论文阅读工具 (ArxivReaderTool) — 支持多后端：ArXiv / Semantic Scholar / OpenAlex
+Paper reading tool (ArxivReaderTool) — multi-backend: ArXiv / Semantic Scholar / OpenAlex
 
-设计理由：
-  ArXiv API 在中国大陆访问不稳定（经常超时/断开）。
-  Semantic Scholar API 国内可达且免费，申请 Key 后 rate limit 更高。
-  OpenAlex API 国内可达、完全免费、无需 Key，覆盖 2 亿+ 论文。
-  通过 .env 中的 ARXIV_READER_BACKEND 切换后端，零源码修改。
+Rationale:
+  The ArXiv API is unreliable from mainland China (frequent timeouts/disconnects).
+  The Semantic Scholar API is reachable there and free; a key gives a higher rate limit.
+  The OpenAlex API is reachable there, completely free, needs no key, and covers 200M+ papers.
+  Switch backends via ARXIV_READER_BACKEND in .env with zero source changes.
 
-后端对比：
-  - arxiv:              论文库最全，但国内需 VPN
-  - semantic_scholar:   国内可达，覆盖 2 亿+ 论文，含引用数据
-  - openalex:           国内可达，完全免费无需 Key，元数据丰富
+Backend comparison:
+  - arxiv:              most complete paper library, but needs a VPN in mainland China
+  - semantic_scholar:   reachable in mainland China, covers 200M+ papers, includes citation data
+  - openalex:           reachable in mainland China, completely free with no key, rich metadata
 """
 from __future__ import annotations
 
@@ -28,13 +28,13 @@ __all__ = ["ArxivReaderTool"]
 
 
 class ArxivReaderTool:
-    """论文读取工具：支持 ArXiv / Semantic Scholar / OpenAlex 三后端。
+    """Paper-reading tool: ArXiv / Semantic Scholar / OpenAlex backends.
 
-    配置优先从 .env / .env.local 读取：
-      - ARXIV_READER_BACKEND: 后端选择，可选 "arxiv" | "semantic_scholar" | "openalex"（默认 semantic_scholar）
-      - ARXIV_API_ENDPOINT:    ArXiv API 端点（一般不需要改）
-      - SEMANTIC_SCHOLAR_API_KEY: Semantic Scholar API Key（免费申请，可选）
-      - OPENALEX_EMAIL:        OpenAlex 可选邮箱（提高 rate limit，建议填写）
+    Configuration is read from .env / .env.local first:
+      - ARXIV_READER_BACKEND: backend choice, one of "arxiv" | "semantic_scholar" | "openalex" (default semantic_scholar)
+      - ARXIV_API_ENDPOINT:    ArXiv API endpoint (usually no need to change)
+      - SEMANTIC_SCHOLAR_API_KEY: Semantic Scholar API key (free to request, optional)
+      - OPENALEX_EMAIL:        optional OpenAlex email (raises the rate limit; recommended)
     """
 
     name: str = "arxiv_reader"
@@ -50,14 +50,14 @@ class ArxivReaderTool:
         self.use_mock = use_mock
         self.delay_ms = delay_ms
 
-        # ArXiv 配置
+        # ArXiv configuration
         self.arxiv_base_url = get_env("ARXIV_API_ENDPOINT", "http://export.arxiv.org/api/query")
 
-        # Semantic Scholar 配置
+        # Semantic Scholar configuration
         self.ss_api_key = get_env("SEMANTIC_SCHOLAR_API_KEY")
         self.ss_base_url = "https://api.semanticscholar.org/graph/v1"
 
-        # OpenAlex 配置
+        # OpenAlex configuration
         self.openalex_email = get_env("OPENALEX_EMAIL", "")
         self.openalex_base_url = "https://api.openalex.org"
 
@@ -102,7 +102,7 @@ class ArxivReaderTool:
         return await self._arxiv_execute(paper_id, query, max_results)
 
     # ------------------------------------------------------------------
-    # Mock 模式
+    # Mock mode
     # ------------------------------------------------------------------
     async def _mock_execute(
         self, paper_id: str | None, query: str | None, max_results: int
@@ -152,7 +152,7 @@ class ArxivReaderTool:
         }
 
     # ------------------------------------------------------------------
-    # ArXiv 后端（论文最全，国内需 VPN）
+    # ArXiv backend (most complete library; needs a VPN in mainland China)
     # ------------------------------------------------------------------
     async def _arxiv_execute(
         self, paper_id: str | None, query: str | None, max_results: int
@@ -179,11 +179,11 @@ class ArxivReaderTool:
                 "source": "arxiv_api",
                 "query": query or paper_id,
                 "papers": [],
-                "error": f"ArXiv API 网络错误（国内访问可能需 VPN）。建议切换到 semantic_scholar 后端："
-                        f"在 .env 中设置 ARXIV_READER_BACKEND=semantic_scholar。原始错误: {e}",
+                "error": f"ArXiv API network error (access from mainland China may need a VPN). Consider switching to the semantic_scholar backend: "
+                        f"set ARXIV_READER_BACKEND=semantic_scholar in .env. Original error: {e}",
             }
 
-        # 解析 Atom XML
+        # Parse Atom XML
         try:
             root = ET.fromstring(text)
         except ET.ParseError as e:
@@ -192,8 +192,8 @@ class ArxivReaderTool:
                 "source": "arxiv_api",
                 "query": query or paper_id,
                 "papers": [],
-                "error": f"ArXiv API 返回了无法解析的内容。可能是服务暂时不可用或网络问题。"
-                        f"内容预览: {preview}... (原始错误: {e})",
+                "error": f"The ArXiv API returned content that could not be parsed. The service may be temporarily unavailable or there may be a network problem. "
+                        f"Content preview: {preview}... (original error: {e})",
             }
 
         ns = {"atom": "http://www.w3.org/2005/Atom"}
@@ -226,8 +226,8 @@ class ArxivReaderTool:
         }
 
     # ------------------------------------------------------------------
-    # Semantic Scholar 后端（国内可达，免费）
-    # 申请 Key: https://www.semanticscholar.org/product/api#api-key-form
+    # Semantic Scholar backend (reachable in mainland China, free)
+    # Request a key: https://www.semanticscholar.org/product/api#api-key-form
     # ------------------------------------------------------------------
     async def _semantic_scholar_execute(
         self, paper_id: str | None, query: str | None, max_results: int
@@ -238,7 +238,7 @@ class ArxivReaderTool:
 
         try:
             if paper_id:
-                # 直接按 ID 查询
+                # Query directly by ID
                 url = f"{self.ss_base_url}/paper/{paper_id}"
                 params = {"fields": "title,authors,year,abstract,url,citationCount"}
                 async with aiohttp.ClientSession() as session:
@@ -249,7 +249,7 @@ class ArxivReaderTool:
                                 "source": "semantic_scholar",
                                 "query": paper_id,
                                 "papers": [],
-                                "error": f"Semantic Scholar API 错误: {data.get('message', resp.status)}",
+                                "error": f"Semantic Scholar API error: {data.get('message', resp.status)}",
                             }
                         paper = self._ss_paper_to_dict(data)
                         return {
@@ -258,7 +258,7 @@ class ArxivReaderTool:
                             "papers": [paper],
                         }
             else:
-                # 搜索查询
+                # Search query
                 url = f"{self.ss_base_url}/paper/search"
                 params = {
                     "query": query,
@@ -273,7 +273,7 @@ class ArxivReaderTool:
                                 "source": "semantic_scholar",
                                 "query": query,
                                 "papers": [],
-                                "error": f"Semantic Scholar API 错误: {data.get('message', resp.status)}",
+                                "error": f"Semantic Scholar API error: {data.get('message', resp.status)}",
                             }
                         papers = [self._ss_paper_to_dict(p) for p in data.get("data", [])]
                         return {
@@ -286,12 +286,12 @@ class ArxivReaderTool:
                 "source": "semantic_scholar",
                 "query": query or paper_id,
                 "papers": [],
-                "error": f"Semantic Scholar 网络错误: {e}",
+                "error": f"Semantic Scholar network error: {e}",
             }
 
     @staticmethod
     def _ss_paper_to_dict(data: dict) -> dict:
-        """将 Semantic Scholar 原始数据转为统一格式。"""
+        """Convert raw Semantic Scholar data to the unified format."""
         authors = []
         for a in data.get("authors", [])[:10]:
             name = a.get("name", "")
@@ -310,22 +310,22 @@ class ArxivReaderTool:
         }
 
     # ------------------------------------------------------------------
-    # OpenAlex 后端（国内可达，完全免费，无需 Key）
-    # 文档: https://docs.openalex.org/
+    # OpenAlex backend (reachable in mainland China, completely free, no key)
+    # Docs: https://docs.openalex.org/
     # ------------------------------------------------------------------
     async def _openalex_execute(
         self, paper_id: str | None, query: str | None, max_results: int
     ) -> dict[str, Any]:
         headers = {
             "User-Agent": "deep-research-agent",
-            "Accept-Encoding": "gzip, deflate",  # 避免 brotli 解码问题
+            "Accept-Encoding": "gzip, deflate",  # avoid brotli decoding problems
         }
         if self.openalex_email:
             headers["mailto"] = self.openalex_email
 
         try:
             if paper_id:
-                # 直接按 ID 查询（支持 OpenAlex ID 或 DOI）
+                # Query directly by ID (OpenAlex ID or DOI supported)
                 url = f"{self.openalex_base_url}/works/{paper_id}"
                 async with aiohttp.ClientSession() as session:
                     async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=15)) as resp:
@@ -335,7 +335,7 @@ class ArxivReaderTool:
                                 "source": "openalex",
                                 "query": paper_id,
                                 "papers": [],
-                                "error": f"OpenAlex API 错误: {data.get('message', resp.status)}",
+                                "error": f"OpenAlex API error: {data.get('message', resp.status)}",
                             }
                         paper = self._openalex_paper_to_dict(data)
                         return {
@@ -344,7 +344,7 @@ class ArxivReaderTool:
                             "papers": [paper],
                         }
             else:
-                # 搜索查询
+                # Search query
                 url = f"{self.openalex_base_url}/works"
                 params = {
                     "search": query,
@@ -358,7 +358,7 @@ class ArxivReaderTool:
                                 "source": "openalex",
                                 "query": query,
                                 "papers": [],
-                                "error": f"OpenAlex API 错误: {data.get('message', resp.status)}",
+                                "error": f"OpenAlex API error: {data.get('message', resp.status)}",
                             }
                         papers = [self._openalex_paper_to_dict(r) for r in data.get("results", [])]
                         return {
@@ -371,12 +371,12 @@ class ArxivReaderTool:
                 "source": "openalex",
                 "query": query or paper_id,
                 "papers": [],
-                "error": f"OpenAlex 网络错误: {e}",
+                "error": f"OpenAlex network error: {e}",
             }
 
     @staticmethod
     def _openalex_paper_to_dict(data: dict) -> dict:
-        """将 OpenAlex 原始数据转为统一格式。"""
+        """Convert raw OpenAlex data to the unified format."""
         authors = []
         for a in data.get("authorships", [])[:10]:
             author_info = a.get("author", {})
@@ -384,11 +384,11 @@ class ArxivReaderTool:
             if name:
                 authors.append(name)
 
-        # OpenAlex 的 abstract 是倒排索引，简单处理为空或从 summary 取
+        # OpenAlex's abstract is an inverted index; simply leave it empty or take it from the summary
         summary = ""
         ab = data.get("abstract_inverted_index")
         if ab:
-            # 倒排索引还原为近似文本（按词频排序不够精确，这里简单拼接）
+            # Restore the inverted index to approximate text (ordering by frequency is imprecise; simple concatenation here)
             words = []
             for word, positions in ab.items():
                 for pos in positions:
@@ -397,13 +397,13 @@ class ArxivReaderTool:
                     words[pos] = word
             summary = " ".join(words)
 
-        # PDF 链接
+        # PDF link
         pdf_url = ""
         oa = data.get("open_access", {})
         if oa:
             pdf_url = oa.get("oa_url", "") or oa.get("pdf_url", "")
         if not pdf_url:
-            # 尝试从 best_oa_location 取
+        # Try taking it from best_oa_location
             loc = data.get("best_oa_location", {})
             if loc:
                 pdf_url = loc.get("pdf_url", "") or loc.get("landing_page_url", "")

@@ -3,12 +3,12 @@
 """
 scripts/run_evolution.py
 ================================================================================
-自进化训练脚本
+Self-evolution training script
 
-功能：
-    1. 启动 M6 Self-Evolution Engine 的 MAE（Multi-Agent Evolution）三角训练循环
-    2. 每轮保存模型 checkpoint
-    3. 记录训练曲线（奖励、KL 散度、损失等）到 JSONL
+Features:
+    1. Launch the MAE (Multi-Agent Evolution) triangular training loop of the M6 Self-Evolution Engine
+    2. Save a model checkpoint every round
+    3. Log training curves (reward, KL divergence, loss, etc.) to JSONL
 
 Usage:
     python run_evolution.py --config configs/evolution/grpo_online.yaml
@@ -43,17 +43,17 @@ def setup_logging(log_level: str = "INFO") -> None:
 
 def load_config(config_path: str) -> dict:
     if not os.path.exists(config_path):
-        raise FileNotFoundError(f"配置文件未找到: {config_path}")
+        raise FileNotFoundError(f"Config file not found: {config_path}")
     with open(config_path, "r", encoding="utf-8") as f:
         return yaml.safe_load(f)
 
 
 def initialize_evolution(config: dict) -> Any:
-    """初始化 Self-Evolution Engine 及其依赖模块。"""
+    """Initialize the Self-Evolution Engine and its dependent modules."""
     logger = logging.getLogger("run_evolution")
-    logger.info("正在初始化自进化引擎...")
+    logger.info("Initializing self-evolution engine...")
 
-    # 加载 LLM policy（使用 judge_policy 或 default）
+    # Load the LLM policy (use judge_policy or default)
     from src.models.model_router import ModelRouter
 
     model_cfg = config.get("model", {})
@@ -61,23 +61,23 @@ def initialize_evolution(config: dict) -> Any:
     backend_sampling = model_cfg.get("backend_sampling", {})
     kwargs = backend_sampling.get(backend, {})
     policy = ModelRouter.create_backend(backend, **kwargs)
-    logger.info(f"[LLM] Policy 后端已加载: {backend}")
+    logger.info(f"[LLM] Policy backend loaded: {backend}")
 
-    # 初始化 Orchestrator 作为 Solver
+    # Initialize the Orchestrator as the Solver
     from src.core.runner import initialize_modules
 
     research_config = config.get("research_config", {})
     modules = initialize_modules(research_config)
     solver = modules["orchestrator"]
-    logger.info("[Solver] Orchestrator 已初始化")
+    logger.info("[Solver] Orchestrator initialized")
 
-    # 初始化 Proposer
+    # Initialize the Proposer
     from src.evolution.proposer import Proposer
 
     proposer = Proposer(policy=policy)
-    logger.info("[Proposer] 已初始化")
+    logger.info("[Proposer] Initialized")
 
-    # 初始化 Judge
+    # Initialize the Judge
     from src.evolution.judge import Judge
 
     judge_cfg = config.get("judge", {})
@@ -87,9 +87,9 @@ def initialize_evolution(config: dict) -> Any:
         efficiency_optimal=judge_cfg.get("efficiency_optimal", 5),
         efficiency_scale=judge_cfg.get("efficiency_scale", 3.0),
     )
-    logger.info("[Judge] 已初始化")
+    logger.info("[Judge] Initialized")
 
-    # 初始化 Self-Evolution Engine
+    # Initialize the Self-Evolution Engine
     from src.evolution.engine import SelfEvolutionEngine
 
     trainer_config = config.get("trainer", {})
@@ -101,16 +101,16 @@ def initialize_evolution(config: dict) -> Any:
         trainer_config=trainer_config,
         output_dir=output_dir,
     )
-    logger.info("[M6] Self-Evolution Engine 已初始化")
+    logger.info("[M6] Self-Evolution Engine initialized")
     return engine
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="自进化训练脚本",
+        description="Self-evolution training script",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-示例:
+Examples:
   python scripts/run_evolution.py --config configs/evolution/grpo_online.yaml
   python scripts/run_evolution.py --config configs/evolution/grpo_online.yaml --output_dir checkpoints/exp1
         """,
@@ -119,26 +119,26 @@ def main() -> None:
         "--config",
         type=str,
         default="configs/evolution/grpo_online.yaml",
-        help="GRPO 训练配置文件路径",
+        help="Path to the GRPO training config file",
     )
     parser.add_argument(
         "--output_dir",
         type=str,
         default=None,
-        help="覆盖配置中的输出目录",
+        help="Override the output directory in the config",
     )
     parser.add_argument(
         "--num_rounds",
         type=int,
         default=20,
-        help="进化总轮数",
+        help="Total number of evolution rounds",
     )
     parser.add_argument(
         "--log_level",
         type=str,
         default="INFO",
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
-        help="日志级别",
+        help="Log level",
     )
     args = parser.parse_args()
 
@@ -153,18 +153,18 @@ def main() -> None:
         engine = initialize_evolution(config)
         summary = asyncio.run(engine.run(num_rounds=args.num_rounds))
 
-        # 保存最终汇总
+        # Save the final summary
         output_dir = config.get("logging", {}).get("output_dir", "./evolution_output")
         summary_path = os.path.join(output_dir, "evolution_summary.json")
         os.makedirs(output_dir, exist_ok=True)
         with open(summary_path, "w", encoding="utf-8") as f:
             json.dump(summary, f, ensure_ascii=False, indent=2)
 
-        logger.info(f"自进化完成！汇总已保存: {summary_path}")
-        logger.info(f"最终平均得分: {summary.get('final_avg_score', 0.0):.4f}")
+        logger.info(f"Self-evolution complete! Summary saved: {summary_path}")
+        logger.info(f"Final average score: {summary.get('final_avg_score', 0.0):.4f}")
 
     except Exception as e:
-        logger.exception("训练过程中发生错误")
+        logger.exception("An error occurred during training")
         sys.exit(1)
 
 

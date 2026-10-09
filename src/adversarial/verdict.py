@@ -1,8 +1,8 @@
 """
-M5 Red-Blue 对抗降噪循环 — 评判与数据结构层
+M5 Red-Blue adversarial denoising loop — verdict and data-structure layer
 
-本模块定义对抗循环中所有核心数据结构（Issue / RedVerdict / FixOperation）
-以及评分引擎 VerdictEngine。所有分数区间统一为 [0.0, 10.0]，便于与人类直觉对齐。
+This module defines the core data structures of the adversarial loop (Issue / RedVerdict / FixOperation)
+and the scoring engine VerdictEngine. All scores lie in [0.0, 10.0] so they align with human intuition.
 """
 from __future__ import annotations
 
@@ -25,47 +25,47 @@ __all__ = [
 
 
 # ============================================================================
-# 枚举定义
+# Enum definitions
 # ============================================================================
 
 class Severity(Enum):
-    """问题严重级别，用于计算修复优先级。"""
-    CRITICAL = "critical"  # 事实性错误、核心幻觉
-    MAJOR = "major"        # 显著不一致、重要遗漏
-    MINOR = "minor"        # 措辞偏差、次要来源问题
+    """Issue severity level, used to compute fix priority."""
+    CRITICAL = "critical"  # factual errors, core hallucinations
+    MAJOR = "major"        # significant inconsistencies, important omissions
+    MINOR = "minor"        # wording drift, minor source problems
 
 
 class FixType(Enum):
-    """Blue Agent 修复策略类型。"""
-    IN_PLACE = "in_place"      # 原地修正：数字/日期/名字等直接替换
-    SUPPLEMENTARY = "search"   # 补充搜索：unsourced claims → 触发新搜索
-    REMOVAL = "removal"        # 移除：高置信幻觉段落直接删除
+    """Blue Agent fix strategy type."""
+    IN_PLACE = "in_place"      # in-place correction: replace numbers/dates/names directly
+    SUPPLEMENTARY = "search"   # supplementary search: unsourced claims -> trigger a new search
+    REMOVAL = "removal"        # removal: delete high-confidence hallucinated paragraphs
 
 
 class Dimension(Enum):
-    """Red Agent 五维度攻击维度。"""
-    FACTUAL = "fact_check"      # 事实核查
-    HALLUCINATION = "hallucination"  # 幻觉检测
-    LOGICAL = "logical"         # 逻辑一致性
-    SOURCE_CREDIBILITY = "source_credibility"  # 来源可信度
-    COVERAGE = "coverage"       # 覆盖完整度
+    """The five attack dimensions of the Red Agent."""
+    FACTUAL = "fact_check"      # fact checking
+    HALLUCINATION = "hallucination"  # hallucination detection
+    LOGICAL = "logical"         # logical consistency
+    SOURCE_CREDIBILITY = "source_credibility"  # source credibility
+    COVERAGE = "coverage"       # coverage completeness
 
 
 # ============================================================================
-# 数据类定义
+# Dataclass definitions
 # ============================================================================
 
 @dataclass
 class Issue:
-    """Red Agent 发现的单条问题。
+    """A single issue found by the Red Agent.
 
     Attributes:
-        severity: 严重级别 (critical / major / minor)。
-        dimension: 所属攻击维度。
-        description: 自然语言描述，传给 Blue Agent 的指导信息。
-        location: 问题在报告中的位置标记，如段落索引或引用标记。
-        fix_type: 建议的修复类型。
-        evidence: 支撑该 issue 判定的证据片段（如 source 原文）。
+        severity: severity level (critical / major / minor).
+        dimension: the attack dimension it belongs to.
+        description: natural-language description, guidance passed to the Blue Agent.
+        location: marker for where the issue sits in the report, e.g. a paragraph index or citation mark.
+        fix_type: suggested fix type.
+        evidence: evidence snippet supporting the issue (e.g. original source text).
     """
     severity: Severity
     dimension: Dimension
@@ -96,7 +96,7 @@ class Issue:
         )
 
     def __hash__(self) -> int:
-        """用于 resolved_issues 集合去重：基于核心字段生成确定性 hash。"""
+        """Used to de-duplicate the resolved_issues set: derives a deterministic hash from the core fields."""
         return hash((self.severity, self.dimension, self.description, self.location, self.fix_type))
 
     def __eq__(self, other: object) -> bool:
@@ -113,13 +113,13 @@ class Issue:
 
 @dataclass
 class RedVerdict:
-    """Red Agent 对单份报告的完整攻击结果。
+    """The full attack result of the Red Agent on one report.
 
     Attributes:
-        dimension_scores: 五维度分数，键为 Dimension，值为 [0, 10] 浮点数。
-        overall_score: 加权综合分。
-        issues: 发现的所有问题列表。
-        raw_feedback: 原始模型输出，用于审计和调试。
+        dimension_scores: scores for the five dimensions; keys are Dimension, values are floats in [0, 10].
+        overall_score: weighted overall score.
+        issues: list of all issues found.
+        raw_feedback: raw model output, kept for auditing and debugging.
     """
     dimension_scores: dict[Dimension, float] = field(default_factory=dict)
     overall_score: float = 0.0
@@ -149,13 +149,13 @@ class RedVerdict:
 
 @dataclass
 class FixOperation:
-    """Blue Agent 执行的单次修复操作记录。
+    """Record of a single fix operation performed by the Blue Agent.
 
     Attributes:
-        issue: 被修复的原始问题。
-        action: 实际采取的动作描述。
-        success: 修复是否成功通过 self_verify。
-        detail: 详细变更内容，如修改前后对比。
+        issue: the original issue that was fixed.
+        action: description of the action actually taken.
+        success: whether the fix passed self_verify.
+        detail: detailed change content, e.g. before/after comparison.
     """
     issue: Issue
     action: str = ""
@@ -172,19 +172,19 @@ class FixOperation:
 
 
 # ============================================================================
-# 评分引擎
+# Scoring engine
 # ============================================================================
 
 class VerdictEngine:
-    """Red-Blue 对抗循环的评分引擎。
+    """Scoring engine of the Red-Blue adversarial loop.
 
-    设计决策：
-    1. 五维度权重与项目计划严格对齐，总和为 1.0。
-    2. 所有输入分数假设已归一化到 [0.0, 10.0]。
-    3. 提供 round-trip 序列化（dict / json）以便持久化审计。
+    Design decisions:
+    1. The five dimension weights are strictly aligned with the project plan and sum to 1.0.
+    2. All input scores are assumed to be normalized to [0.0, 10.0].
+    3. Round-trip serialization (dict / json) is provided for persistent auditing.
     """
 
-    # 五维度权重（与项目计划一致）
+    # Five dimension weights (consistent with the project plan)
     DIMENSION_WEIGHTS: dict[Dimension, float] = {
         Dimension.FACTUAL: 0.30,
         Dimension.HALLUCINATION: 0.25,
@@ -193,14 +193,14 @@ class VerdictEngine:
         Dimension.COVERAGE: 0.10,
     }
 
-    # severity → 数值映射（用于优先级计算）
+    # severity -> numeric mapping (used for priority computation)
     SEVERITY_WEIGHTS: dict[Severity, float] = {
         Severity.CRITICAL: 10.0,
         Severity.MAJOR: 5.0,
         Severity.MINOR: 1.0,
     }
 
-    # fix_type → 难度系数（用于优先级计算）
+    # fix_type -> difficulty coefficient (used for priority computation)
     FIX_DIFFICULTY: dict[FixType, float] = {
         FixType.IN_PLACE: 1.0,
         FixType.REMOVAL: 0.8,
@@ -209,13 +209,13 @@ class VerdictEngine:
 
     @classmethod
     def compute_overall(cls, dimension_scores: dict[Dimension, float]) -> float:
-        """计算加权综合分。
+        """Compute the weighted overall score.
 
         Args:
-            dimension_scores: 五维度分数字典，每个值应在 [0.0, 10.0]。
+            dimension_scores: dict of the five dimension scores, each should be in [0.0, 10.0].
 
         Returns:
-            加权平均分，范围 [0.0, 10.0]。
+            Weighted average score in [0.0, 10.0].
         """
         if not dimension_scores:
             return 0.0
@@ -235,17 +235,17 @@ class VerdictEngine:
         prev: dict[Dimension, float],
         curr: dict[Dimension, float],
     ) -> float:
-        """计算两轮间的分数变化量 Δ（欧氏距离）。
+        """Compute the score change Δ between two rounds (Euclidean distance).
 
-        设计决策：使用欧氏距离而非简单绝对差，能同时捕捉多维度波动。
-        如果某维度在某一字典中缺失，以 0.0 补齐。
+        Design decision: Euclidean distance rather than a simple absolute difference captures multi-dimension fluctuation.
+        If a dimension is missing from either dict, it is filled with 0.0.
 
         Args:
-            prev: 上一轮五维度分数。
-            curr: 当前轮五维度分数。
+            prev: previous round's five dimension scores.
+            curr: current round's five dimension scores.
 
         Returns:
-            非负浮点数，越小表示变化越平缓。
+            Non-negative float; smaller means a smoother change.
         """
         all_dims = set(prev.keys()) | set(curr.keys())
         if not all_dims:
@@ -259,16 +259,16 @@ class VerdictEngine:
 
     @classmethod
     def compute_priority(cls, issue: Issue) -> float:
-        """计算 Issue 的修复优先级。
+        """Compute the fix priority of an Issue.
 
-        公式: priority = severity_weight × dimension_weight × fix_difficulty
-        优先级越高，越应该优先处理。
+        Formula: priority = severity_weight × dimension_weight × fix_difficulty
+        The higher the priority, the sooner it should be handled.
 
         Args:
-            issue: 待计算优先级的问题。
+            issue: the issue whose priority is computed.
 
         Returns:
-            优先级分数（无上限，越大越优先）。
+            Priority score (unbounded; larger means more urgent).
         """
         sw = cls.SEVERITY_WEIGHTS.get(issue.severity, 1.0)
         dw = cls.DIMENSION_WEIGHTS.get(issue.dimension, 0.1)
@@ -277,10 +277,10 @@ class VerdictEngine:
 
     @staticmethod
     def to_json(verdict: RedVerdict, indent: int = 2) -> str:
-        """将 RedVerdict 序列化为 JSON 字符串。"""
+        """Serialize a RedVerdict to a JSON string."""
         return json.dumps(verdict.to_dict(), ensure_ascii=False, indent=indent)
 
     @staticmethod
     def from_json(raw: str) -> RedVerdict:
-        """从 JSON 字符串反序列化 RedVerdict。"""
+        """Deserialize a RedVerdict from a JSON string."""
         return RedVerdict.from_dict(json.loads(raw))

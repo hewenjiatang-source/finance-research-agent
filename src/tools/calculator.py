@@ -1,20 +1,20 @@
 """
-计算器工具 (CalculatorTool)
+Calculator tool (CalculatorTool)
 
-设计理由：
-  code_sandbox 虽然能做任意 Python 计算，但：
-  1. 有安全风险（需要 AST 检查）
-  2. 启动慢（即使简单加减也要走完整沙箱流程）
-  3. 对 LLM 来说，调用成本高（需要写完整 Python 代码）
+Rationale:
+  code_sandbox can run arbitrary Python calculations, but:
+  1. It carries security risk (needs AST checks)
+  2. It starts slowly (even simple addition goes through the full sandbox flow)
+  3. It is costly for the LLM to call (a full piece of Python code must be written)
 
-  CalculatorTool 提供轻量、安全、快速的确定性计算：
-  - 直接 eval 数学表达式（无代码执行风险）
-  - 支持单位换算、百分比计算、统计函数
-  - 调用成本低：Agent 只需要传表达式字符串
+  CalculatorTool offers lightweight, safe, fast deterministic computation:
+  - Evaluates math expressions directly (no code-execution risk)
+  - Supports unit conversion, percentage calculation, statistical functions
+  - Low call cost: the Agent only passes an expression string
 
-与 code_sandbox 的关系：
-  calculator:   简单算术（2+2, 15% of 300, average([1,2,3])）
-  code_sandbox: 复杂逻辑（数据分析、模拟、算法实现）
+Relationship with code_sandbox:
+  calculator:   simple arithmetic (2+2, 15% of 300, average([1,2,3]))
+  code_sandbox: complex logic (data analysis, simulation, algorithm implementation)
 """
 from __future__ import annotations
 
@@ -28,7 +28,7 @@ from typing import Any
 
 __all__ = ["CalculatorTool"]
 
-# 允许的安全操作符和函数
+# Allowed safe operators and functions
 _SAFE_OPS = {
     ast.Add: operator.add,
     ast.Sub: operator.sub,
@@ -47,7 +47,7 @@ _SAFE_FUNCS = {
     "min": min,
     "sum": sum,
     "len": len,
-    # 数学函数
+    # Math functions
     "sqrt": math.sqrt,
     "sin": math.sin,
     "cos": math.cos,
@@ -58,19 +58,19 @@ _SAFE_FUNCS = {
     "ceil": math.ceil,
     "floor": math.floor,
     "factorial": math.factorial,
-    # 统计函数
+    # Statistical functions
     "mean": statistics.mean,
     "median": statistics.median,
     "stdev": statistics.stdev,
     "variance": statistics.variance,
-    # 常量
+    # Constants
     "pi": math.pi,
     "e": math.e,
 }
 
 
 class CalculatorTool:
-    """轻量计算器：安全地执行数学表达式。"""
+    """Lightweight calculator: safely evaluates math expressions."""
 
     name: str = "calculator"
     description: str = (
@@ -100,23 +100,23 @@ class CalculatorTool:
         }
 
     async def execute(self, expression: str) -> str:
-        """计算数学表达式。
+        """Evaluate a math expression.
 
         Args:
-            expression: 数学表达式字符串，如 "(150 + 230) * 0.15" 或 "mean([12, 15, 18, 21])"
+            expression: math expression string, e.g. "(150 + 230) * 0.15" or "mean([12, 15, 18, 21])".
 
         Returns:
-            计算结果的字符串表示。
+            String representation of the result.
         """
         if not expression or not expression.strip():
             return "[Calculator Error] Empty expression"
 
-        # 模拟异步 IO（实际计算是 CPU-bound，但保持接口一致）
+        # Simulate async IO (the computation is CPU-bound, but keep the interface consistent)
         import asyncio
         await asyncio.sleep(0)
 
         try:
-            # 预处理：将中文括号、百分号等转为标准格式
+            # Preprocessing: convert full-width brackets, percent signs, etc. to the standard format
             expr = self._preprocess(expression)
             result = self._safe_eval(expr)
             return f"{result}"
@@ -129,23 +129,23 @@ class CalculatorTool:
 
     @staticmethod
     def _preprocess(expr: str) -> str:
-        """预处理表达式：统一格式。"""
-        # 中文括号 → 英文括号
+        """Preprocess the expression: unify the format."""
+        # Full-width brackets -> ASCII brackets (Chinese characters below are intentional)
         expr = expr.replace("（", "(").replace("）", ")")
         expr = expr.replace("【", "[").replace("】", "]")
-        # 百分号处理：15% → 15/100
+        # Percent sign handling: 15% -> 15/100
         expr = re.sub(r"(\d+(?:\.\d+)?)%", r"(\1/100)", expr)
-        # 千分位逗号去除（只匹配数字间的逗号，如 1,000 → 1000；保留列表逗号）
+        # Strip thousands-separator commas (only commas between digits, e.g. 1,000 -> 1000; list commas are kept)
         expr = re.sub(r"(\d),(?=\d)", r"\1", expr)
         return expr.strip()
 
     def _safe_eval(self, expr: str) -> Any:
-        """安全 eval：只允许数学 AST 节点。"""
+        """Safe eval: only math AST nodes are allowed."""
         tree = ast.parse(expr, mode="eval")
         return self._eval_node(tree.body)
 
     def _eval_node(self, node: ast.AST) -> Any:
-        """递归求值 AST 节点。"""
+        """Recursively evaluate AST nodes."""
         if isinstance(node, ast.Num):  # Python < 3.8
             return node.n
         if isinstance(node, ast.Constant):  # Python >= 3.8

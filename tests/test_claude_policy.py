@@ -1,6 +1,6 @@
-"""ClaudePolicy / ModelRouter 单元测试（无需网络、无需安装 anthropic SDK）。
+"""Unit tests for ClaudePolicy / ModelRouter (no network and no anthropic SDK installation required).
 
-运行: python -m unittest discover -s tests -p "test_*.py" -v
+Run: python -m unittest discover -s tests -p "test_*.py" -v
 """
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ from src.models.claude_policy import (  # noqa: E402
 
 
 # --------------------------------------------------------------------------
-# 假 client
+# fake client
 # --------------------------------------------------------------------------
 class APIError(Exception):
     def __init__(self, msg: str, status_code: int):
@@ -111,7 +111,7 @@ class TestConversion(unittest.TestCase):
         out = to_anthropic_tools([TOOL_SCHEMA])
         self.assertEqual(out[0]["name"], "web_search")
         self.assertEqual(out[0]["input_schema"]["required"], ["query"])
-        # 已是 Anthropic 格式则原样放行
+        # Already in Anthropic format: pass through unchanged
         native = {"name": "x", "description": "d", "input_schema": {"type": "object", "properties": {}}}
         self.assertEqual(to_anthropic_tools([native]), [native])
         self.assertEqual(to_anthropic_tools(None), [])
@@ -134,7 +134,7 @@ class TestConversion(unittest.TestCase):
         self.assertEqual([b["tool_use_id"] for b in last[:2]], ["a", "b"])
 
     def test_tool_result_ordering_fixed_when_user_text_precedes(self):
-        # 用户文本先于 tool 消息出现 -> tool_result 仍必须排在最前
+        # User text appears before the tool message -> tool_result must still come first
         msgs = [
             {"role": "user", "content": "task"},
             {"role": "assistant", "content": "", "tool_calls": [tc("a", "web_search", {"query": "q"})]},
@@ -152,7 +152,7 @@ class TestConversion(unittest.TestCase):
             {"role": "tool", "tool_call_id": "b", "content": "only b"},
         ]
         _, out = self.conv(msgs)
-        # orphan 被丢弃，user 文本保留
+        # orphan is dropped, user text is kept
         self.assertEqual(out[0]["content"], [{"type": "text", "text": "task"}])
         results = out[2]["content"]
         self.assertEqual([r["tool_use_id"] for r in results], ["a", "b"])
@@ -219,7 +219,7 @@ class TestConversion(unittest.TestCase):
             {"role": "tool", "tool_call_id": "toolu_1", "content": "R"},
         ]
         _, out = self.conv(msgs)
-        self.assertEqual(out[1]["content"], blocks)  # 原样还原，含 signature
+        self.assertEqual(out[1]["content"], blocks)  # restored as-is, including signature
         self.assertEqual(out[2]["content"][0]["tool_use_id"], "toolu_1")
 
 
@@ -229,13 +229,13 @@ class TestPolicyCall(unittest.TestCase):
         out = pol([{"role": "system", "content": "sys"}, {"role": "user", "content": "q"}])
         req = fm.calls[0]
         self.assertEqual(out["content"], "hello")
-        self.assertEqual(out.content, "hello")  # 属性式访问（OpenAICompatibleDict 契约）
+        self.assertEqual(out.content, "hello")  # attribute-style access (OpenAICompatibleDict contract)
         self.assertEqual(out["tool_calls"], [])
         self.assertEqual(req["model"], "claude-sonnet-5-5")
         self.assertEqual(req["system"], "sys")
         self.assertEqual(req["temperature"], 0.3)
         self.assertEqual(req["max_tokens"], 777)
-        self.assertNotIn("top_p", req)  # 默认不发 top_p
+        self.assertNotIn("top_p", req)  # top_p is not sent by default
         self.assertNotIn("tools", req)
 
     def test_top_p_only_when_explicitly_enabled(self):
@@ -267,7 +267,7 @@ class TestPolicyCall(unittest.TestCase):
     def test_summarizer_disables_tools_by_assigning_none(self):
         pol, fm = make_policy([text_resp()])
         pol.set_tools([TOOL_SCHEMA])
-        pol.tools = None  # SummarizerAgent 的做法
+        pol.tools = None  # what SummarizerAgent does
         pol([{"role": "user", "content": "q"}])
         self.assertNotIn("tools", fm.calls[0])
 
@@ -303,7 +303,7 @@ class TestPolicyCall(unittest.TestCase):
         self.assertIn("temperature", fm.calls[0])
         self.assertNotIn("temperature", fm.calls[1])
         pol([{"role": "user", "content": "q2"}])
-        self.assertNotIn("temperature", fm.calls[2])  # 已记住
+        self.assertNotIn("temperature", fm.calls[2])  # already remembered
 
     def test_context_overflow_raises_runtime_error(self):
         pol, _ = make_policy([APIError("prompt is too long: 1200000 tokens > 1000000 maximum", 400)])
@@ -355,7 +355,7 @@ class TestPolicyCall(unittest.TestCase):
 
 
 class TestRouter(unittest.TestCase):
-    """用假的 anthropic 模块验证 env -> ClaudePolicy 的映射。"""
+    """Verify the env -> ClaudePolicy mapping using a fake anthropic module."""
 
     def setUp(self):
         self.created: list[dict] = []
@@ -371,7 +371,7 @@ class TestRouter(unittest.TestCase):
         self._env = {k: os.environ.get(k) for k in ("ANTHROPIC_API_KEY", "CLAUDE_MODEL", "ANTHROPIC_BASE_URL")}
         import src.utils.env_config as ec
 
-        ec._ENV_LOADED = True  # 不读取本地 .env
+        ec._ENV_LOADED = True  # do not read the local .env
         from src.models.model_router import ModelRouter
 
         ModelRouter.clear_cache()

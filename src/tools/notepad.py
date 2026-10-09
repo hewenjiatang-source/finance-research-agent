@@ -1,23 +1,23 @@
 """
-笔记工具 (NotepadTool)
+Notepad tool (NotepadTool)
 
-设计理由：
-  深度研究是一个长时程、多轮次的过程。Agent 在 10+ 轮搜索后容易"遗忘"早期结论
-  或陷入重复搜索。NotepadTool 提供一个持久化的"草稿纸"，让 Agent 可以：
+Rationale:
+  Deep research is a long-horizon, multi-round process. After 10+ rounds of search an Agent easily "forgets" early conclusions
+  or falls into repeated searches. NotepadTool provides a persistent "scratch pad" so the Agent can:
 
-  1. 记录中间结论（如"A 公司 2024 年营收 = 300 亿，来源：财报第 3 页"）
-  2. 记录待验证假设（"需要确认 B 公司是否也推出了类似产品"）
-  3. 记录搜索策略（"已搜过 X 和 Y，接下来搜 Z"）
-  4. 在后续轮次中读取笔记，避免重复工作
+  1. Record intermediate conclusions (e.g. "Company A 2024 revenue = 30 billion, source: filing page 3")
+  2. Record hypotheses to verify ("need to confirm whether Company B also launched a similar product")
+  3. Record search strategy ("already searched X and Y, next search Z")
+  4. Read the notes in later rounds to avoid duplicated work
 
-与 Memory Store (M4) 的区别：
-  - Memory Store：结构化、去重、矛盾检测，用于跨 Agent 共享信息
-  - Notepad：非结构化、个人化、临时性，用于单个 Agent 的"思维草稿"
+Difference from Memory Store (M4):
+  - Memory Store: structured, de-duplicated, contradiction-detecting, used to share information across Agents
+  - Notepad: unstructured, personal, temporary, the "thinking scratch" of a single Agent
 
-设计要点：
-  - 纯内存实现（session 级），不持久化
-  - 支持 CRUD：write / read / list / clear
-  - 每条笔记带 timestamp 和 category（conclusion / todo / question / source）
+Design points:
+  - Pure in-memory implementation (session level), not persisted
+  - Supports CRUD: write / read / list / clear
+  - Each note carries a timestamp and category (conclusion / todo / question / source)
 """
 from __future__ import annotations
 
@@ -31,15 +31,15 @@ __all__ = ["NotepadTool", "NotepadEntry"]
 
 @dataclass
 class NotepadEntry:
-    """单条笔记。"""
+    """A single note."""
     content: str
     category: str  # "conclusion" | "todo" | "question" | "source" | "strategy"
     timestamp: float = field(default_factory=time.time)
-    source: str = ""  # 可选：这条笔记的来源/依据
+    source: str = ""  # optional: the source/basis of this note
 
 
 class NotepadTool:
-    """笔记工具：Agent 的草稿纸。"""
+    """Notepad tool: the Agent's scratch pad."""
 
     name: str = "notepad"
     description: str = (
@@ -95,7 +95,7 @@ class NotepadTool:
         }
 
     async def execute(self, action: str, **kwargs) -> str:
-        """统一入口：根据 action 分发到具体方法。"""
+        """Unified entry point: dispatch to the specific method by action."""
         import asyncio
         await asyncio.sleep(0)
 
@@ -112,27 +112,27 @@ class NotepadTool:
         return f"[Notepad Error] Unknown action: {action}. Supported: write, read, list_categories, clear, search."
 
     # ------------------------------------------------------------------
-    # 公共 API
+    # Public API
     # ------------------------------------------------------------------
 
     async def write(self, content: str, category: str = "conclusion", source: str = "") -> str:
         import asyncio
         await asyncio.sleep(0)
 
-        """写一条笔记。
+        """Write a note.
 
         Args:
-            content: 笔记内容。
-            category: 笔记类型。建议值：
-                      - "conclusion": 已确认的结论
-                      - "todo": 待办事项（需要后续验证）
-                      - "question": 未回答的疑问
-                      - "source": 重要来源记录
-                      - "strategy": 搜索策略/计划
-            source: 可选的来源标注。
+            content: note content.
+            category: note type. Suggested values:
+                      - "conclusion": a confirmed conclusion
+                      - "todo": a to-do item (needs later verification)
+                      - "question": an unanswered question
+                      - "source": a record of an important source
+                      - "strategy": search strategy/plan
+            source: optional source annotation.
 
         Returns:
-            确认信息。
+            Confirmation message.
         """
         entry = NotepadEntry(content=content, category=category, source=source)
         self._notes.append(entry)
@@ -142,14 +142,14 @@ class NotepadTool:
         import asyncio
         await asyncio.sleep(0)
 
-        """读取笔记。
+        """Read notes.
 
         Args:
-            category: 只读取指定类型的笔记。为 None 时读取全部。
-            max_entries: 最多返回多少条（最新的优先）。
+            category: only read notes of this type. None reads all.
+            max_entries: maximum number of entries returned (newest first).
 
         Returns:
-            格式化的笔记列表。
+            Formatted list of notes.
         """
         notes = self._notes
         if category:
@@ -159,7 +159,7 @@ class NotepadTool:
             cat_hint = f' in category "{category}"' if category else ""
             return f"[Notepad] No notes found{cat_hint}."
 
-        # 最新的优先
+        # Newest first
         notes = sorted(notes, key=lambda n: n.timestamp, reverse=True)[:max_entries]
 
         lines = [f"=== Notepad ({len(notes)} entries) ==="]
@@ -173,7 +173,7 @@ class NotepadTool:
         import asyncio
         await asyncio.sleep(0)
 
-        """列出所有笔记类型及其数量。"""
+        """List all note categories and their counts."""
         from collections import Counter
         counts = Counter(n.category for n in self._notes)
         if not counts:
@@ -187,10 +187,10 @@ class NotepadTool:
         import asyncio
         await asyncio.sleep(0)
 
-        """清空笔记。
+        """Clear notes.
 
         Args:
-            category: 只清空指定类型。为 None 时清空全部。
+            category: only clear this type. None clears all.
         """
         if category is None:
             count = len(self._notes)
@@ -206,11 +206,11 @@ class NotepadTool:
         import asyncio
         await asyncio.sleep(0)
 
-        """搜索笔记内容。
+        """Search note content.
 
         Args:
-            keyword: 搜索关键词。
-            max_entries: 最多返回多少条。
+            keyword: search keyword.
+            max_entries: maximum number of entries returned.
         """
         matches = [n for n in self._notes if keyword.lower() in n.content.lower()]
         if not matches:
@@ -224,11 +224,11 @@ class NotepadTool:
         return "\n".join(lines)
 
     # ------------------------------------------------------------------
-    # 序列化（用于保存 trajectory）
+    # Serialization (for saving trajectories)
     # ------------------------------------------------------------------
 
     def to_dict(self) -> list[dict]:
-        """导出为字典列表。"""
+        """Export as a list of dicts."""
         return [
             {
                 "content": n.content,

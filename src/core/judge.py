@@ -3,9 +3,9 @@
 """
 src/core/judge.py
 ================================================================================
-MiMo 2.5 Pro LLM-as-Judge 统一接口。
+MiMo 2.5 Pro LLM-as-Judge unified interface.
 
-对外接口:
+Public interface:
     - LLMJudge.score_single(report, query, ground_truth=None) -> dict
     - LLMJudge.compare_two(report_a, report_b, query) -> dict
 ================================================================================
@@ -22,25 +22,25 @@ logger = logging.getLogger("judge")
 
 
 class LLMJudge:
-    """基于 MiMo 2.5 Pro 的 LLM-as-Judge 评审器。"""
+    """LLM-as-Judge reviewer (originally built on MiMo 2.5 Pro; any backend works)."""
 
     def __init__(self, backend: str = "claude") -> None:
         """
         Args:
-            backend: Judge 后端名称，对应 ModelRouter 注册的后端。
+            backend: judge backend name, matching a backend registered in ModelRouter.
         """
         self.backend = backend
         self._policy = None
 
     def _get_policy(self):
-        """惰性初始化 policy，避免在导入时触发网络请求。"""
+        """Lazily initialize the policy, to avoid triggering network requests at import time."""
         if self._policy is None:
             from src.models.model_router import ModelRouter
             self._policy = ModelRouter.create_backend(self.backend)
         return self._policy
 
     # -----------------------------------------------------------------------
-    # 单篇报告深度评分
+    # Deep scoring of a single report
     # -----------------------------------------------------------------------
     def score_single(
         self,
@@ -49,9 +49,9 @@ class LLMJudge:
         ground_truth: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """
-        对单篇报告进行 5 维度深度评分。
+        Score a single report on 5 dimensions.
 
-        返回结构:
+        Return structure:
             {
               "overall": {"score": 7.5, "reason": "..."},
               "dimensions": {
@@ -67,36 +67,36 @@ class LLMJudge:
         gt_section = ""
         if ground_truth:
             gt_lines = "\n".join(f"- {k}: {v}" for k, v in ground_truth.items())
-            gt_section = f"期望包含的关键事实：\n{gt_lines}\n"
+            gt_section = f"Key facts expected to be included:\n{gt_lines}\n"
 
-        prompt = f"""你是一位严谨的研究报告评审专家。请对以下研究报告进行评分。
+        prompt = f"""You are a rigorous research-report reviewer. Please score the following research report.
 
-研究问题：{query}
+Research question: {query}
 
 {gt_section}
---- 研究报告 ---
+--- Research report ---
 {report[:4000]}
 
-请从以下维度评分（每项 0-10 分，10 分为最高）：
-1. factual_accuracy: 事实准确性（数字、日期、人名、机构名是否正确）
-2. logical_consistency: 逻辑一致性（论证是否自洽，有无矛盾）
-3. citation_quality: 引用质量（来源是否可靠，引用是否充分）
-4. comprehensiveness: 覆盖面（是否全面回答了研究问题的各个子维度）
-5. overall: 整体质量
+Score on the following dimensions (0-10 each, 10 is the highest):
+1. factual_accuracy: factual accuracy (are numbers, dates, person and organization names correct)
+2. logical_consistency: logical consistency (is the argument self-consistent, any contradictions)
+3. citation_quality: citation quality (are the sources reliable, are the citations sufficient)
+4. comprehensiveness: coverage (does it answer every sub-dimension of the research question)
+5. overall: overall quality
 
-请输出严格 JSON 格式：
+Output strict JSON:
 {{
-  "factual_accuracy": {{"score": 分数, "reason": "简短理由"}},
-  "logical_consistency": {{"score": 分数, "reason": "简短理由"}},
-  "citation_quality": {{"score": 分数, "reason": "简短理由"}},
-  "comprehensiveness": {{"score": 分数, "reason": "简短理由"}},
-  "overall": {{"score": 分数, "reason": "简短理由"}}
+  "factual_accuracy": {{"score": number, "reason": "short reason"}},
+  "logical_consistency": {{"score": number, "reason": "short reason"}},
+  "citation_quality": {{"score": number, "reason": "short reason"}},
+  "comprehensiveness": {{"score": number, "reason": "short reason"}},
+  "overall": {{"score": number, "reason": "short reason"}}
 }}"""
 
         try:
             policy = self._get_policy()
             messages = [
-                {"role": "system", "content": "你是研究报告评审专家。必须输出合法 JSON，不要输出任何其他内容。"},
+                {"role": "system", "content": "You are a research-report review expert. You must output valid JSON and nothing else."},
                 {"role": "user", "content": prompt},
             ]
             resp = policy(messages)
@@ -119,13 +119,13 @@ class LLMJudge:
                     "judge_backend": self.backend,
                 }
         except Exception as e:
-            logger.warning(f"MiMo Judge 单篇评分失败: {e}")
+            logger.warning(f"Judge single-report scoring failed: {e}")
             return {"error": str(e), "judge_backend": self.backend}
 
-        return {"error": "无法解析 MiMo Judge 输出", "judge_backend": self.backend}
+        return {"error": "Unable to parse the Judge output", "judge_backend": self.backend}
 
     # -----------------------------------------------------------------------
-    # 两篇报告 head-to-head 对比
+    # Head-to-head comparison of two reports
     # -----------------------------------------------------------------------
     def compare_two(
         self,
@@ -134,9 +134,9 @@ class LLMJudge:
         query: str,
     ) -> dict[str, Any]:
         """
-        对两份报告做 head-to-head 对比评分。
+        Run a head-to-head comparison score on two reports.
 
-        返回结构:
+        Return structure:
             {
               "comprehensiveness": {"A": 4, "B": 5, "reason": "..."},
               "accuracy": {"A": 3, "B": 4, "reason": "..."},
@@ -145,34 +145,34 @@ class LLMJudge:
               "judge_backend": "claude"
             }
         """
-        prompt = f"""你是一位严谨的研究报告评审专家。请对比以下两份研究报告，从 4 个维度评分（1-5分）。
+        prompt = f"""You are a rigorous research-report reviewer. Please compare the following two research reports and score them on 4 dimensions (1-5 each).
 
-研究问题：{query}
+Research question: {query}
 
---- 报告 A ---
+--- Report A ---
 {report_a[:3000]}
 
---- 报告 B ---
+--- Report B ---
 {report_b[:3000]}
 
-评分标准：
-- comprehensiveness（覆盖面）：报告是否全面回答了研究问题的各个子维度
-- accuracy（准确性）：报告中的事实、数据是否正确，有无明显幻觉
-- structure（结构清晰度）：报告的组织结构是否合理，逻辑是否通顺
-- sources（引用质量）：报告是否引用了可靠来源，引用是否充分
+Scoring criteria:
+- comprehensiveness: does the report answer every sub-dimension of the research question
+- accuracy: are the facts and data in the report correct, any obvious hallucinations
+- structure: is the report well organized and the logic smooth
+- sources: does the report cite reliable sources, are the citations sufficient
 
-请输出严格 JSON 格式：
+Output strict JSON:
 {{
-  "comprehensiveness": {{"A": 分数, "B": 分数, "reason": "简短理由"}},
-  "accuracy": {{"A": 分数, "B": 分数, "reason": "简短理由"}},
-  "structure": {{"A": 分数, "B": 分数, "reason": "简短理由"}},
-  "sources": {{"A": 分数, "B": 分数, "reason": "简短理由"}}
+  "comprehensiveness": {{"A": number, "B": number, "reason": "short reason"}},
+  "accuracy": {{"A": number, "B": number, "reason": "short reason"}},
+  "structure": {{"A": number, "B": number, "reason": "short reason"}},
+  "sources": {{"A": number, "B": number, "reason": "short reason"}}
 }}"""
 
         try:
             policy = self._get_policy()
             messages = [
-                {"role": "system", "content": "你是研究报告评审专家。必须输出合法 JSON，不要输出任何其他内容。"},
+                {"role": "system", "content": "You are a research-report review expert. You must output valid JSON and nothing else."},
                 {"role": "user", "content": prompt},
             ]
             resp = policy(messages)
@@ -183,18 +183,18 @@ class LLMJudge:
                 result["judge_backend"] = self.backend
                 return result
         except Exception as e:
-            logger.warning(f"MiMo Judge 对比评分失败: {e}")
+            logger.warning(f"Judge head-to-head scoring failed: {e}")
             return {"error": str(e), "judge_backend": self.backend}
 
-        return {"error": "无法解析 MiMo Judge 输出", "judge_backend": self.backend}
+        return {"error": "Unable to parse the Judge output", "judge_backend": self.backend}
 
     # -----------------------------------------------------------------------
-    # 内部工具：JSON 提取
+    # Internal helper: JSON extraction
     # -----------------------------------------------------------------------
     @staticmethod
     def _extract_json(text: str) -> dict[str, Any] | None:
-        """从文本中提取 JSON 对象，支持多种 fallback 策略。"""
-        # 策略 1: 直接找最外层 {}
+        """Extract a JSON object from text, with several fallback strategies."""
+        # Strategy 1: find the outermost {} directly
         m = re.search(r"\{.*\}", text, re.DOTALL)
         if m:
             try:
@@ -202,7 +202,7 @@ class LLMJudge:
             except json.JSONDecodeError:
                 pass
 
-        # 策略 2: 找 ```json ... ``` 代码块
+        # Strategy 2: find a ```json ... ``` code block
         m = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
         if m:
             try:
@@ -210,14 +210,14 @@ class LLMJudge:
             except json.JSONDecodeError:
                 pass
 
-        # 策略 3: 修复常见 JSON 错误后再解析
+        # Strategy 3: repair common JSON errors, then parse
         cleaned = text.strip()
-        # 去除可能的 Markdown 标记
+        # strip possible Markdown markers
         cleaned = re.sub(r"^```.*\n?", "", cleaned)
         cleaned = re.sub(r"\n?```$", "", cleaned)
-        # 修复单引号
+        # fix single quotes
         cleaned = cleaned.replace("'", '"')
-        # 修复 trailing comma
+        # fix trailing commas
         cleaned = re.sub(r",(\s*[}\]])", r"\1", cleaned)
         try:
             return json.loads(cleaned)

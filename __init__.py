@@ -1,4 +1,4 @@
-"""Deep Research Agent 项目包。"""
+"""Deep Research Agent project package."""
 from __future__ import annotations
 
 __version__ = "0.1.0"

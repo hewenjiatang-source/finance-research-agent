@@ -1,61 +1,61 @@
 # =============================================================================
-# Web Search (网络搜索) 工具配置
+# Web Search tool configuration
 # =============================================================================
-# 支持多种搜索后端：mock（本地模拟）、serpapi、bing、google_custom_search
+# Supports multiple search backends: mock (local simulation), serpapi, bing, google_custom_search
 # =============================================================================
 
 web_search:
   name: "web_search"
-  description: "通过网络搜索引擎获取实时网页信息"
+  description: "Get real-time web information through a web search engine"
 
-  # 总开关
+  # Master switch
   enabled: true
 
-  # 后端类型：mock / serpapi / bing / google_custom_search
+  # Backend type: mock / serpapi / bing / google_custom_search
   backend: "mock"
 
   # ---------------------------------------------------------------------------
-  # Mock 模式配置（无真实 API 时使用，用于快速调试）
+  # Mock mode configuration (used when there is no real API, for quick debugging)
   # ---------------------------------------------------------------------------
   mock:
-    # 是否启用 mock
+    # Whether to enable mock
     enabled: true
-    # mock 数据文件路径（JSONL 格式，每行一个预设结果）
+    # Mock data file path (JSONL format, one preset result per line)
     mock_data_path: "data/mock_search_results.jsonl"
-    # 当无预设结果时，是否返回随机生成的占位摘要
+    # Whether to return a randomly generated placeholder snippet when there is no preset result
     fallback_to_random: true
-    # 随机摘要模板池
+    # Random snippet template pool
     random_templates:
-      - "关于 {query} 的最新研究表明，这一领域正在快速发展。"
-      - "{query} 是一个复杂的话题，涉及多个学科的交叉研究。"
-      - "根据权威来源，{query} 的关键要点包括技术创新和应用落地。"
+      - "Recent research on {query} shows that this field is developing rapidly."
+      - "{query} is a complex topic involving interdisciplinary research across multiple fields."
+      - "According to authoritative sources, the key points of {query} include technological innovation and real-world deployment."
 
   # ---------------------------------------------------------------------------
-  # SerpApi 配置（真实搜索后端示例）
+  # SerpApi configuration (example of a real search backend)
   # ---------------------------------------------------------------------------
   serpapi:
     api_key: "${SERPAPI_KEY}"
     engine: "google"
-    # 搜索区域代码
+    # Search region code
     gl: "us"
-    # 界面语言
+    # Interface language
     hl: "en"
-    # 安全搜索级别：active / moderate / off
+    # Safe-search level: active / moderate / off
     safe: "active"
 
   # ---------------------------------------------------------------------------
-  # 通用参数
+  # General parameters
   # ---------------------------------------------------------------------------
-  # 单次搜索返回的最大结果数
+  # Maximum results returned per search
   max_results: 10
-  # 搜索结果摘要最大 token 数（过长时截断）
+  # Maximum tokens per search result snippet (truncated if longer)
   snippet_max_tokens: 512
-  # 搜索结果超时（秒）
+  # Search timeout (seconds)
   timeout_seconds: 15
-  # 失败重试次数
+  # Number of retries on failure
   max_retries: 2
-  # 重试间隔（秒）
+  # Retry interval (seconds)
   retry_delay: 1.0
-  # 是否缓存搜索结果（TTL 秒）
+  # Whether to cache search results (TTL in seconds)
   cache_enabled: true
   cache_ttl_seconds: 3600

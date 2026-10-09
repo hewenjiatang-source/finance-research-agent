@@ -1,109 +1,109 @@
 # =============================================================================
-# Reward Shaping (奖励塑造) 配置
+# Reward Shaping configuration
 # =============================================================================
-# 定义自进化训练（M6）中 GRPO 使用的奖励函数结构、多维度权重及 shaping 参数。
-# 奖励 = Σ(weight_i * score_i) + efficiency_bonus + length_penalty
+# Defines the reward function structure, multi-dimension weights, and shaping parameters used by GRPO in self-evolution training (M6).
+# Reward = Σ(weight_i * score_i) + efficiency_bonus + length_penalty
 # =============================================================================
 
 reward:
   name: "research_reward"
-  description: "多维度研究质量奖励函数，用于 GRPO 策略梯度优化"
+  description: "Multi-dimensional research-quality reward function for GRPO policy-gradient optimization"
 
   # ---------------------------------------------------------------------------
-  # 五维度评分权重（需与 Red Agent 的五个维度对齐）
+  # Five-dimension scoring weights (must align with the Red Agent's five dimensions)
   # ---------------------------------------------------------------------------
   dimensions:
     factual_accuracy:
-      name: "事实准确性"
-      # 该维度在总奖励中的权重
+      name: "Factual Accuracy"
+      # Weight of this dimension in the total reward
       weight: 0.25
-      # 评分来源：red_agent / judge_model / exact_match
+      # Scoring source: red_agent / judge_model / exact_match
       scorer: "red_agent"
-      # 评分范围
+      # Score range
       min_score: 0.0
       max_score: 10.0
 
     logical_consistency:
-      name: "逻辑一致性"
+      name: "Logical Consistency"
       weight: 0.20
       scorer: "red_agent"
       min_score: 0.0
       max_score: 10.0
 
     citation_coverage:
-      name: "引用覆盖与质量"
+      name: "Citation Coverage and Quality"
       weight: 0.20
       scorer: "red_agent"
       min_score: 0.0
       max_score: 10.0
 
     bias:
-      name: "偏见与片面性"
+      name: "Bias and One-sidedness"
       weight: 0.20
       scorer: "red_agent"
-      # 注意：偏见维度得分越高表示偏见越少（即越客观）
+      # Note: for the bias dimension, a higher score means less bias (i.e., more objective)
       min_score: 0.0
       max_score: 10.0
 
     comprehensiveness:
-      name: "完备性与深度"
+      name: "Completeness and Depth"
       weight: 0.15
       scorer: "red_agent"
       min_score: 0.0
       max_score: 10.0
 
   # ---------------------------------------------------------------------------
-  # Shaping 公式参数
+  # Shaping formula parameters
   # ---------------------------------------------------------------------------
   shaping:
-    # 是否启用奖励塑形（避免稀疏奖励）
+    # Whether to enable reward shaping (avoids sparse rewards)
     enabled: true
-    # 中间步骤奖励系数：每完成一个子任务给予的微弱正奖励
+    # Intermediate-step reward coefficient: a small positive reward for each completed sub-task
     step_bonus: 0.05
-    # 完成奖励系数：成功生成最终报告时的额外奖励
+    # Completion reward coefficient: extra reward when the final report is successfully generated
     completion_bonus: 1.0
-    # 重复/循环惩罚系数：检测到重复动作时扣除
+    # Repetition/loop penalty coefficient: deducted when repeated actions are detected
     repetition_penalty: -0.2
-    # 格式错误惩罚：报告格式不符合要求时扣除
+    # Format error penalty: deducted when the report format does not meet requirements
     format_penalty: -0.5
 
   # ---------------------------------------------------------------------------
-  # Efficiency Sigmoid 参数
+  # Efficiency sigmoid parameters
   # ---------------------------------------------------------------------------
   efficiency:
-    # 是否启用效率奖励（鼓励用更少的工具调用/轮次完成高质量报告）
+    # Whether to enable the efficiency reward (encourages high-quality reports with fewer tool calls/turns)
     enabled: true
-    # sigmoid 中心点：期望的理想轮次数（低于此值奖励高，高于此值奖励衰减）
+    # Sigmoid center: the ideal number of turns (reward is high below this value and decays above it)
     sigmoid_center: 8.0
-    # sigmoid 斜率：控制衰减速度（越大衰减越快）
+    # Sigmoid slope: controls the decay speed (larger means faster decay)
     sigmoid_slope: 0.5
-    # 最大效率奖励上限（避免过度追求短轨迹而牺牲质量）
+    # Maximum efficiency reward cap (avoids sacrificing quality by over-pursuing short trajectories)
     max_efficiency_bonus: 0.5
-    # 效率奖励公式：
+    # Efficiency reward formula:
     # efficiency_bonus = max_efficiency_bonus * sigmoid(sigmoid_slope * (sigmoid_center - actual_turns))
-    # 当 actual_turns < center 时获得正奖励，actual_turns > center 时奖励趋近于 0
+    # Positive reward when actual_turns < center; the reward approaches 0 when actual_turns > center
 
   # ---------------------------------------------------------------------------
-  # 长度惩罚参数（防止过度冗长）
+  # Length penalty parameters (prevents excessive verbosity)
   # ---------------------------------------------------------------------------
   length_penalty:
     enabled: true
-    # 期望的报告 token 长度（约）
+    # Target report length in tokens (approximate)
     target_length: 2048
-    # 超出目标长度后的线性惩罚系数
+    # Linear penalty coefficient beyond the target length
     over_length_coef: -0.0001
-    # 低于目标长度的惩罚系数（鼓励充分分析，不宜过短）
+    # Penalty coefficient below the target length (encourages thorough analysis; not too short)
     under_length_coef: -0.0002
 
   # ---------------------------------------------------------------------------
-  # 奖励归一化
+  # Reward normalization
   # ---------------------------------------------------------------------------
   normalization:
-    # 是否对组内奖励进行归一化（零均值单位方差）
+    # Whether to normalize rewards within a group (zero mean, unit variance)
     enabled: true
-    # 归一化方式：z_score / min_max / rank
+    # Normalization method: z_score / min_max / rank
     method: "z_score"
-    # 是否对异常值进行裁剪
+    # Whether to clip outliers
     clip_outliers: true
-    # 裁剪阈值（标准差倍数）
+    # Clipping threshold (multiple of the standard deviation)
     clip_threshold: 3.0

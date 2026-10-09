@@ -1,4 +1,4 @@
-"""财报场景端到端（假模型 + 合成 SEC 夹具）：规划 → 研究员取数 → 合成 → 证据账本/侧车文件。"""
+"""Finance scenario end to end (fake model + synthetic SEC fixtures): plan -> researcher fetches data -> synthesize -> evidence ledger / sidecar file."""
 from __future__ import annotations
 
 import asyncio
@@ -39,7 +39,7 @@ PLAN = {"sub_tasks": [
 
 
 class ScriptedPolicy:
-    """按 system prompt 区分角色的假 Claude。无状态：只看 messages。"""
+    """A fake Claude that tells roles apart by system prompt. Stateless: looks only at messages."""
 
     def __init__(self) -> None:
         self.tools = None
@@ -98,7 +98,7 @@ class TestFinanceE2E(unittest.TestCase):
         self.assertEqual(report.sources[0]["id"], 1)
 
         md = _format_report(report, 1.0)
-        self.assertIn("[1] [", md)  # 参考来源编号 == evidence id
+        self.assertIn("[1] [", md)  # the reference number == evidence id
         with tempfile.TemporaryDirectory() as d:
             path = save_report(md, "acme", d, evidence=report.evidence)
             side = Path(path[:-3] + ".evidence.json")

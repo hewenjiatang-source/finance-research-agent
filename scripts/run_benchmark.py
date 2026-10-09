@@ -3,19 +3,19 @@
 """
 scripts/run_benchmark.py
 ================================================================================
-DeepResearch Agent 定量评测脚本
+DeepResearch Agent quantitative evaluation script
 
-评测设计：
-    对比 "单轮 LLM 直接回答" vs "Agent 完整流程" 的研究质量。
+Evaluation design:
+    Compare research quality of "single-pass LLM direct answer" vs "full Agent pipeline".
 
-指标：
-    1. comprehensiveness (1-5): 报告覆盖多少子话题
-    2. accuracy (1-5): 信息是否准确、有无幻觉
-    3. source_count: 引用来源数量
-    4. report_length: 报告字数
-    5. confidence: 系统给出的置信度
+Metrics:
+    1. comprehensiveness (1-5): how many sub-topics the report covers
+    2. accuracy (1-5): whether the information is accurate and free of hallucination
+    3. source_count: number of cited sources
+    4. report_length: report length (characters)
+    5. confidence: confidence reported by the system
 
-用法：
+Usage:
     python scripts/run_benchmark.py --queries_file data/benchmark_queries.txt
 """
 
@@ -35,10 +35,10 @@ if str(PROJECT_ROOT) not in sys.path:
 
 
 # ---------------------------------------------------------------------------
-# 单轮 LLM baseline（直接问 DeepSeek，不走 Agent）
+# Single-pass LLM baseline (ask DeepSeek directly, bypassing the Agent)
 # ---------------------------------------------------------------------------
 def run_baseline(query: str, config: dict) -> dict:
-    """用默认后端直接调用 LLM，返回报告文本。"""
+    """Call the LLM directly with the default backend and return the report text."""
     from src.models.model_router import ModelRouter
 
     policy = ModelRouter.create_backend("claude")
@@ -64,16 +64,16 @@ def run_baseline(query: str, config: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Agent 完整流程
+# Full Agent pipeline
 # ---------------------------------------------------------------------------
 async def run_agent(query: str, config: dict) -> dict:
-    """跑完整 Agent 流程，返回报告。"""
+    """Run the full Agent pipeline and return the report."""
     from src.core.runner import initialize_modules, run_research
 
     modules = initialize_modules(config)
     report_md = await run_research(query, config, modules)
 
-    # 简单解析元信息
+    # Simple parsing of metadata
     confidence = 0.0
     if "**置信度**:" in report_md:
         try:
@@ -92,51 +92,51 @@ async def run_agent(query: str, config: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# MiMo 2.5 Pro 自动评分（LLM-as-Judge）
+# MiMo 2.5 Pro automatic scoring (LLM-as-Judge)
 # ---------------------------------------------------------------------------
 def auto_score(report_a: str, report_b: str, query: str) -> dict:
     """
-    调用 MiMo 2.5 Pro 对两份报告做对比评分。
-    MiMo 作为 Judge 后端，从覆盖面、准确性、结构、引用四个维度打分。
+    Call MiMo 2.5 Pro to score the two reports comparatively.
+    MiMo serves as the Judge backend, scoring on four dimensions: coverage, accuracy, structure, and citations.
     """
     from src.core.judge import LLMJudge
     try:
         judge = LLMJudge(backend="claude")
         return judge.compare_two(report_a, report_b, query)
     except Exception as e:
-        print(f"[AutoScore] MiMo Judge 评分失败: {e}")
+        print(f"[AutoScore] MiMo Judge scoring failed: {e}")
     return {}
 
 
 # ---------------------------------------------------------------------------
-# 主流程
+# Main flow
 # ---------------------------------------------------------------------------
 async def main() -> None:
     parser = argparse.ArgumentParser(description="DeepResearch Agent Benchmark")
-    parser.add_argument("--queries_file", type=str, default=None, help="每行一个查询问题的文件")
-    parser.add_argument("--queries", type=str, nargs="+", default=None, help="直接在命令行传入问题")
-    parser.add_argument("--output", type=str, default="outputs/benchmark_results.json", help="结果输出路径")
-    parser.add_argument("--skip_baseline", action="store_true", help="跳过 baseline，只跑 Agent")
-    parser.add_argument("--skip_agent", action="store_true", help="跳过 Agent，只跑 baseline")
+    parser.add_argument("--queries_file", type=str, default=None, help="File with one query per line")
+    parser.add_argument("--queries", type=str, nargs="+", default=None, help="Pass queries directly on the command line")
+    parser.add_argument("--output", type=str, default="outputs/benchmark_results.json", help="Result output path")
+    parser.add_argument("--skip_baseline", action="store_true", help="Skip the baseline, run only the Agent")
+    parser.add_argument("--skip_agent", action="store_true", help="Skip the Agent, run only the baseline")
     args = parser.parse_args()
 
-    # 加载 queries
+    # Load queries
     if args.queries:
         queries = args.queries
     elif args.queries_file:
         with open(args.queries_file, "r", encoding="utf-8") as f:
             queries = [line.strip() for line in f if line.strip()]
     else:
-        # 默认评测集
+        # Default evaluation set
         queries = [
             "分析2026年中国互联网公司对于后训练岗位的需求性并建议我该怎么准备",
             "对比 GPT-4o、Claude 3.5 Sonnet、DeepSeek-V3 的推理能力差异",
             "2025年诺贝尔物理学奖得主的主要贡献是什么",
         ]
 
-    print(f"[Benchmark] 评测问题数: {len(queries)}")
+    print(f"[Benchmark] Number of evaluation queries: {len(queries)}")
 
-    # 加载配置
+    # Load config
     from src.core.runner import load_config
     config = load_config()
 
@@ -144,7 +144,7 @@ async def main() -> None:
 
     for i, query in enumerate(queries, 1):
         print(f"\n{'='*60}")
-        print(f"[Benchmark] 问题 {i}/{len(queries)}: {query[:50]}...")
+        print(f"[Benchmark] Query {i}/{len(queries)}: {query[:50]}...")
         print("=" * 60)
 
         record = {"query": query, "baseline": None, "agent": None, "scores": None}
@@ -156,7 +156,7 @@ async def main() -> None:
             baseline = run_baseline(query, config)
             baseline["elapsed"] = round(time.time() - t0, 2)
             record["baseline"] = baseline
-            print(f"[Baseline] 字数={baseline['length']}, 来源数={baseline['source_count']}, 耗时={baseline['elapsed']}s")
+            print(f"[Baseline] chars={baseline['length']}, sources={baseline['source_count']}, elapsed={baseline['elapsed']}s")
 
         # Agent
         if not args.skip_agent:
@@ -165,7 +165,7 @@ async def main() -> None:
             agent_result = await run_agent(query, config)
             agent_result["elapsed"] = round(time.time() - t0, 2)
             record["agent"] = agent_result
-            print(f"[Agent] 字数={agent_result['length']}, 来源数={agent_result['source_count']}, 置信度={agent_result.get('confidence', 0):.2f}, 耗时={agent_result['elapsed']}s")
+            print(f"[Agent] chars={agent_result['length']}, sources={agent_result['source_count']}, confidence={agent_result.get('confidence', 0):.2f}, elapsed={agent_result['elapsed']}s")
 
         # Auto score (if both available)
         if record["baseline"] and record["agent"]:
@@ -175,27 +175,27 @@ async def main() -> None:
             if scores:
                 print(f"[Score] {json.dumps(scores, ensure_ascii=False, indent=2)}")
             else:
-                print("[Score] 自动评分失败，请人工对比两份报告")
+                print("[Score] Automatic scoring failed; please compare the two reports manually")
 
         results.append(record)
 
     # ------------------------------------------------------------------
-    # 汇总 + 统计显著性
+    # Summary + statistical significance
     # ------------------------------------------------------------------
     print(f"\n{'='*60}")
-    print("[Benchmark] 评测完成，汇总：")
+    print("[Benchmark] Evaluation complete, summary:")
     print("=" * 60)
 
     for r in results:
         print(f"\nQ: {r['query'][:40]}...")
         if r["baseline"]:
             b = r["baseline"]
-            print(f"  Baseline: {b['length']}字, {b['source_count']}来源, {b['elapsed']}s")
+            print(f"  Baseline: {b['length']} chars, {b['source_count']} sources, {b['elapsed']}s")
         if r["agent"]:
             a = r["agent"]
-            print(f"  Agent:    {a['length']}字, {a['source_count']}来源, conf={a.get('confidence', 0):.2f}, {a['elapsed']}s")
+            print(f"  Agent:    {a['length']} chars, {a['source_count']} sources, conf={a.get('confidence', 0):.2f}, {a['elapsed']}s")
 
-    # 统计显著性：收集每道题每个维度的配对分数
+    # Statistical significance: collect paired scores per dimension for each question
     if not args.skip_baseline and not args.skip_agent:
         from evaluation.metrics.stats import bootstrap_ci_paired
 
@@ -207,12 +207,12 @@ async def main() -> None:
             for dim in dimensions:
                 dim_data = scores.get(dim, {})
                 if isinstance(dim_data, dict) and "A" in dim_data and "B" in dim_data:
-                    # A=baseline, B=agent (来自 LLMJudge.compare_two 的约定)
+                    # A=baseline, B=agent (per the LLMJudge.compare_two convention)
                     dim_scores[dim]["baseline"].append(float(dim_data["A"]))
                     dim_scores[dim]["agent"].append(float(dim_data["B"]))
 
         print(f"\n{'='*60}")
-        print("[Benchmark] 统计显著性 (Agent vs Baseline, 配对 bootstrap 95% CI)")
+        print("[Benchmark] Statistical significance (Agent vs Baseline, paired bootstrap 95% CI)")
         print("=" * 60)
         stats_summary: dict[str, Any] = {}
         for dim in dimensions:
@@ -223,12 +223,12 @@ async def main() -> None:
             diffs = [a - b for a, b in zip(a_scores, b_scores)]
             stats = bootstrap_ci_paired(diffs)
             stats_summary[dim] = stats
-            sig = "✓ 显著" if stats["significant"] else "✗ 不显著"
+            sig = "✓ Significant" if stats["significant"] else "✗ Not significant"
             print(f"  {dim:20s}: Agent={sum(a_scores)/len(a_scores):.2f} Baseline={sum(b_scores)/len(b_scores):.2f} "
                   f"Δ={stats['mean_diff']:+.2f} CI=[{stats['ci_lower']:+.2f}, {stats['ci_upper']:+.2f}] "
                   f"p={stats['p_value']:.4f} {sig}")
 
-        # 保存结果
+        # Save results
         final_output = {
             "results": results,
             "statistical_tests": stats_summary,
@@ -245,7 +245,7 @@ async def main() -> None:
     Path(args.output).parent.mkdir(parents=True, exist_ok=True)
     with open(args.output, "w", encoding="utf-8") as f:
         json.dump(final_output, f, ensure_ascii=False, indent=2)
-    print(f"\n[Benchmark] 结果已保存: {args.output}")
+    print(f"\n[Benchmark] Results saved: {args.output}")
 
 
 if __name__ == "__main__":

@@ -1,4 +1,4 @@
-"""Models 子包：LLM Policy 封装。"""
+"""Models subpackage: LLM policy wrappers."""
 from __future__ import annotations
 
 from .vllm_policy import VLLMPolicy, OpenAICompatibleDict

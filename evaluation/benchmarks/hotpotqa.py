@@ -3,11 +3,11 @@
 """
 evaluation/benchmarks/hotpotqa.py
 ================================================================================
-HotpotQA 多跳问答评测适配器。
+HotpotQA multi-hop QA evaluation adapter.
 
-HotpotQA 是一个经典的 multi-hop QA 数据集，要求模型通过多步推理/检索
-连接多条信息才能回答问题。本适配器将其转换为 DeepResearch Agent 的输入格式，
-并计算 pass@k、exact match、F1 等评测指标。
+HotpotQA is a classic multi-hop QA dataset that requires models to connect multiple pieces of information
+through multi-step reasoning/retrieval in order to answer a question. This adapter converts it into the DeepResearch Agent input format,
+and computes evaluation metrics such as pass@k, exact match, and F1.
 ================================================================================
 """
 
@@ -22,9 +22,9 @@ from typing import Any
 
 
 class HotpotQABenchmark:
-    """HotpotQA 评测集加载与评估器。"""
+    """HotpotQA evaluation set loader and evaluator."""
 
-    # 内置小规模测试数据（当 HuggingFace 不可用时作为 fallback）
+    # Built-in small-scale test data (fallback when HuggingFace is unavailable)
     _MOCK_DATA: list[dict[str, Any]] = [
         {
             "question": "《红楼梦》的作者曹雪芹生活在哪个朝代？",
@@ -65,20 +65,20 @@ class HotpotQABenchmark:
 
     def __init__(self, data_path: str | None = None, split: str = "validation", use_mock: bool = False) -> None:
         """
-        初始化 HotpotQA 评测集。
+        Initialize the HotpotQA evaluation set.
 
         Args:
-            data_path: HotpotQA 数据文件路径（JSON 格式）。
-                       若为 None，则尝试从 HuggingFace datasets 加载。
-            split: 数据划分，通常为 "train" / "validation" / "test"。
-            use_mock: 若 True，使用内置测试数据（用于流程验证，无需下载）。
+            data_path: Path to the HotpotQA data file (JSON format).
+                       If None, try loading from HuggingFace datasets.
+            split: Data split, usually "train" / "validation" / "test".
+            use_mock: If True, use the built-in test data (for pipeline verification; no download needed).
         """
         self.split = split
         self.data: list[dict[str, Any]] = []
 
         if use_mock:
             self.data = self._MOCK_DATA
-            print(f"[HotpotQA] 使用内置 mock 数据: {len(self.data)} 条")
+            print(f"[HotpotQA] Using built-in mock data: {len(self.data)} samples")
             return
 
         if data_path and os.path.exists(data_path):
@@ -86,43 +86,43 @@ class HotpotQABenchmark:
                 raw = json.load(f)
                 self.data = raw if isinstance(raw, list) else raw.get("data", [])
         else:
-            # 尝试通过 datasets 库加载（带 timeout 控制）
+            # Try loading via the datasets library (with timeout control)
             try:
                 import os as _os
-                # 设置 HuggingFace 下载 timeout
+                # Set the HuggingFace download timeout
                 _os.environ.setdefault("HF_HUB_DOWNLOAD_TIMEOUT", "30")
                 from datasets import load_dataset
 
                 ds = load_dataset("hotpot_qa", "distractor", split=split)
                 self.data = list(ds)
-                print(f"[HotpotQA] 从 HuggingFace 加载 {len(self.data)} 条数据")
+                print(f"[HotpotQA] Loaded {len(self.data)} samples from HuggingFace")
             except Exception as e:
-                print(f"[HotpotQA] 无法从 HuggingFace 加载: {e}")
-                print(f"[HotpotQA] 建议: 1) 检查网络连接; 2) 或手动下载数据到本地并通过 data_path 传入;")
-                print(f"[HotpotQA] 3) 或使用 --use_mock 参数启用内置测试数据")
+                print(f"[HotpotQA] Unable to load from HuggingFace: {e}")
+                print(f"[HotpotQA] Suggestions: 1) check your network connection; 2) or download the data manually and pass it via data_path;")
+                print(f"[HotpotQA] 3) or use the --use_mock flag to enable the built-in test data")
                 self.data = []
 
     # -----------------------------------------------------------------------
-    # 数据格式转换
+    # Data format conversion
     # -----------------------------------------------------------------------
     def to_research_format(self, sample: dict[str, Any]) -> dict[str, Any]:
         """
-        将 HotpotQA 单条样本转换为 ResearchReport 兼容的输入格式。
+        Convert a single HotpotQA sample into an input format compatible with ResearchReport.
 
         Args:
-            sample: HotpotQA 原始样本。
+            sample: Raw HotpotQA sample.
 
         Returns:
-            包含 query、context、expected_answer 的字典。
+            Dict containing query, context, and expected_answer.
         """
         question = sample.get("question", "")
         answer = sample.get("answer", "")
 
-        # HotpotQA 中的上下文通常是 (title, sentences) 列表
+        # The context in HotpotQA is usually a list of (title, sentences)
         contexts = sample.get("context", [])
         context_text = ""
         if contexts and isinstance(contexts[0], (list, tuple)) and len(contexts[0]) == 2:
-            # 标准格式: [(title, [sent1, sent2, ...]), ...]
+            # Standard format: [(title, [sent1, sent2, ...]), ...]
             for title, sentences in contexts:
                 context_text += f"\n## {title}\n" + " ".join(sentences)
         elif isinstance(contexts, str):
@@ -138,14 +138,14 @@ class HotpotQABenchmark:
 
     def get_samples(self, n: int | None = None, shuffle: bool = False) -> list[dict[str, Any]]:
         """
-        获取转换后的样本列表。
+        Get the list of converted samples.
 
         Args:
-            n: 返回前 n 条样本，None 表示全部。
-            shuffle: 是否随机打乱顺序。
+            n: Return the first n samples; None means all.
+            shuffle: Whether to shuffle the order randomly.
 
         Returns:
-            转换后的样本列表。
+            List of converted samples.
         """
         samples = [self.to_research_format(s) for s in self.data]
         if shuffle:
@@ -155,11 +155,11 @@ class HotpotQABenchmark:
         return samples
 
     # -----------------------------------------------------------------------
-    # 评测指标
+    # Evaluation metrics
     # -----------------------------------------------------------------------
     @staticmethod
     def normalize_answer(text: str) -> str:
-        """对答案进行标准化：小写、去标点、去冠词。"""
+        """Normalize an answer: lowercase, strip punctuation, remove articles."""
         text = text.lower().strip()
         text = re.sub(r"\b(a|an|the)\b", " ", text)
         text = re.sub(r"[^\w\s]", "", text)
@@ -168,12 +168,12 @@ class HotpotQABenchmark:
 
     @staticmethod
     def exact_match(pred: str, gold: str) -> bool:
-        """计算标准化后的精确匹配。"""
+        """Compute exact match after normalization."""
         return HotpotQABenchmark.normalize_answer(pred) == HotpotQABenchmark.normalize_answer(gold)
 
     @staticmethod
     def f1_score(pred: str, gold: str) -> float:
-        """计算 token-level F1 分数。"""
+        """Compute the token-level F1 score."""
         pred_tokens = HotpotQABenchmark.normalize_answer(pred).split()
         gold_tokens = HotpotQABenchmark.normalize_answer(gold).split()
 
@@ -195,15 +195,15 @@ class HotpotQABenchmark:
     @staticmethod
     def pass_at_k(preds: list[str], gold: str, k: int = 1) -> bool:
         """
-        判断前 k 个预测中是否有正确答案（精确匹配）。
+        Determine whether any of the first k predictions is correct (exact match).
 
         Args:
-            preds: 模型生成的 k 个候选答案列表。
-            gold: 标准答案。
-            k: 考虑的候选数。
+            preds: List of k candidate answers generated by the model.
+            gold: Gold answer.
+            k: Number of candidates considered.
 
         Returns:
-            是否有候选命中。
+            Whether any candidate hits.
         """
         for pred in preds[:k]:
             if HotpotQABenchmark.exact_match(pred, gold):
@@ -211,17 +211,17 @@ class HotpotQABenchmark:
         return False
 
     # -----------------------------------------------------------------------
-    # 深度研究评估：把 HotpotQA 当作研究 query，评估完整报告质量
+    # Deep-research evaluation: treat HotpotQA as research queries and evaluate full-report quality
     # -----------------------------------------------------------------------
     @staticmethod
     def gold_entity_coverage(report: str, gold_answer: str) -> float:
         """
-        检查 gold answer 中的实体/关键词是否在研究报告中被覆盖。
+        Check whether the entities/keywords in the gold answer are covered in the research report.
 
-        策略：
-        1. 把 gold_answer 拆分成 token（去停用词）
-        2. 检查每个 token 是否在 report 中出现
-        3. 返回覆盖率
+        Strategy:
+        1. Split gold_answer into tokens (removing stopwords)
+        2. Check whether each token appears in the report
+        3. Return the coverage rate
         """
         if not gold_answer or not report:
             return 0.0
@@ -238,11 +238,11 @@ class HotpotQABenchmark:
     @staticmethod
     def semantic_gold_coverage(report: str, gold_answer: str, threshold: float = 0.60) -> float:
         """
-        用 embedding 语义相似度评估 gold answer 被报告覆盖的程度。
+        Use embedding semantic similarity to assess how well the gold answer is covered by the report.
 
-        把 gold_answer 和 report 分别编码，计算相似度。
-        如果 gold answer 较短，直接和整个报告比；
-        如果 gold answer 较长，分段比较取平均。
+        Encode gold_answer and the report separately and compute their similarity.
+        If the gold answer is short, compare it directly with the whole report;
+        if it is long, compare segment by segment and average.
         """
         if not gold_answer or not report:
             return 0.0
@@ -253,7 +253,7 @@ class HotpotQABenchmark:
         embedder = Embedder()
         gold_emb = np.array(embedder.encode(gold_answer))
 
-        # 把报告拆成 chunk，分别和 gold_answer 比
+        # Split the report into chunks and compare each with gold_answer
         chunks = [s.strip() for s in re.split(r"[。！？\n]", report) if len(s.strip()) > 10]
         if not chunks:
             return 0.0
@@ -264,7 +264,7 @@ class HotpotQABenchmark:
             chunk_embs = np.array([embedder.encode(c) for c in chunks])
 
         sims = chunk_embs.dot(gold_emb)
-        # 返回超过阈值的 chunk 比例（衡量报告中有多少段落和答案语义相关）
+        # Return the proportion of chunks above the threshold (measures how many passages in the report are semantically related to the answer)
         above_threshold = np.sum(sims > threshold)
         return float(above_threshold / len(chunks)) if len(chunks) > 0 else 0.0
 
@@ -274,12 +274,12 @@ class HotpotQABenchmark:
         gold_answer: str,
     ) -> dict[str, float]:
         """
-        对单篇研究报告进行深度评估（基于 HotpotQA 的 gold answer）。
+        Perform a deep evaluation of a single research report (based on the HotpotQA gold answer).
 
-        返回:
-            - gold_entity_coverage: gold answer 实体覆盖率
-            - semantic_gold_coverage: 语义覆盖度
-            - report_length: 报告字数（效率参考）
+        Returns:
+            - gold_entity_coverage: gold answer entity coverage
+            - semantic_gold_coverage: semantic coverage
+            - report_length: report length in characters (efficiency reference)
         """
         return {
             "gold_entity_coverage": self.gold_entity_coverage(report, gold_answer),
@@ -288,7 +288,7 @@ class HotpotQABenchmark:
         }
 
     # -----------------------------------------------------------------------
-    # 批量评估
+    # Batch evaluation
     # -----------------------------------------------------------------------
     def evaluate(
         self,
@@ -296,15 +296,15 @@ class HotpotQABenchmark:
         metrics: list[str] | None = None,
     ) -> dict[str, float]:
         """
-        批量评估预测结果。
+        Batch-evaluate prediction results.
 
         Args:
-            predictions: 每条包含 {"query_id": ..., "prediction": ..., "gold": ...} 的列表。
-                         如果包含 "report" 字段，会同时计算深度研究指标。
-            metrics: 需要计算的指标列表，默认 ["em", "f1", "pass@1"]。
+            predictions: List of items each containing {"query_id": ..., "prediction": ..., "gold": ...}.
+                         If a "report" field is included, deep-research metrics are computed as well.
+            metrics: List of metrics to compute; default ["em", "f1", "pass@1"].
 
         Returns:
-            指标名称 -> 平均值的字典。
+            Dict mapping metric name -> average value.
         """
         if metrics is None:
             metrics = ["em", "f1", "pass@1"]
@@ -330,7 +330,7 @@ class HotpotQABenchmark:
             if "pass@1" in metrics:
                 pass1_sum += 1.0 if HotpotQABenchmark.exact_match(pred, gold) else 0.0
 
-            # 深度研究指标（如果提供了完整报告）
+            # Deep-research metrics (if a full report is provided)
             report = item.get("report", "")
             if report:
                 depth_metrics = self.evaluate_report(report, gold)
@@ -353,15 +353,15 @@ class HotpotQABenchmark:
 
 
 # =============================================================================
-# 简单自测
+# Simple self-test
 # =============================================================================
 if __name__ == "__main__":
     bench = HotpotQABenchmark()
-    print(f"加载样本数: {len(bench.data)}")
+    print(f"Samples loaded: {len(bench.data)}")
 
-    # 模拟预测
+    # Mock predictions
     preds = [
         {"query_id": 0, "prediction": "Shanghai", "gold": "Shanghai"},
         {"query_id": 1, "prediction": "Beijing", "gold": "Shanghai"},
     ]
-    print("评测结果:", bench.evaluate(preds))
+    print("Evaluation results:", bench.evaluate(preds))

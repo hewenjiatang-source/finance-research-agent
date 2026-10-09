@@ -3,13 +3,13 @@
 """
 scripts/run_judge.py
 ================================================================================
-MiMo Judge 深度评分入口脚本。
+MiMo Judge in-depth scoring entry script.
 
-对单篇研究报告进行 5 维度专家评分，输出结构化 JSON。
+Score a single research report on 5 dimensions as an expert reviewer and output structured JSON.
 
 Usage:
-    python scripts/run_judge.py --report_file outputs/reports/report_xxx.md --query "原始问题"
-    python scripts/run_judge.py --report_text "报告内容..." --query "原始问题"
+    python scripts/run_judge.py --report_file outputs/reports/report_xxx.md --query "original query"
+    python scripts/run_judge.py --report_text "report content..." --query "original query"
 ================================================================================
 """
 
@@ -28,43 +28,43 @@ from src.core.judge import LLMJudge
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="MiMo Judge 深度评分")
-    parser.add_argument("--report_file", type=str, default=None, help="报告文件路径（Markdown）")
-    parser.add_argument("--report_text", type=str, default=None, help="报告文本内容")
-    parser.add_argument("--query", type=str, required=True, help="原始研究问题")
-    parser.add_argument("--ground_truth_file", type=str, default=None, help="ground_truth JSON 文件")
-    parser.add_argument("--output", type=str, default=None, help="评分结果输出 JSON 路径")
-    parser.add_argument("--backend", type=str, default="claude", help="Judge 后端名称")
+    parser = argparse.ArgumentParser(description="MiMo Judge in-depth scoring")
+    parser.add_argument("--report_file", type=str, default=None, help="Report file path (Markdown)")
+    parser.add_argument("--report_text", type=str, default=None, help="Report text content")
+    parser.add_argument("--query", type=str, required=True, help="Original research query")
+    parser.add_argument("--ground_truth_file", type=str, default=None, help="ground_truth JSON file")
+    parser.add_argument("--output", type=str, default=None, help="Output JSON path for scoring results")
+    parser.add_argument("--backend", type=str, default="claude", help="Judge backend name")
     args = parser.parse_args()
 
-    # 读取报告
+    # Read the report
     if args.report_file:
         with open(args.report_file, "r", encoding="utf-8") as f:
             report_text = f.read()
     elif args.report_text:
         report_text = args.report_text
     else:
-        print("错误: 必须指定 --report_file 或 --report_text")
+        print("Error: must specify --report_file or --report_text")
         sys.exit(1)
 
-    # 读取 ground_truth
+    # Read ground_truth
     ground_truth = None
     if args.ground_truth_file:
         with open(args.ground_truth_file, "r", encoding="utf-8") as f:
             ground_truth = json.load(f)
 
-    print(f"[Judge] 正在用 {args.backend} 对报告进行深度评分...")
+    print(f"[Judge] Scoring the report in depth with {args.backend}...")
     judge = LLMJudge(backend=args.backend)
     result = judge.score_single(report_text, args.query, ground_truth)
 
     if "error" in result:
-        print(f"[Judge] 评分失败: {result['error']}")
+        print(f"[Judge] Scoring failed: {result['error']}")
         sys.exit(1)
 
-    print("\n===== MiMo Judge 评分结果 =====")
-    print(f"整体质量: {result['overall']['score']:.1f}/10 — {result['overall']['reason']}")
-    print(f"平均分: {result['average']:.2f}")
-    print("\n各维度:")
+    print("\n===== MiMo Judge Scoring Results =====")
+    print(f"Overall quality: {result['overall']['score']:.1f}/10 — {result['overall']['reason']}")
+    print(f"Average score: {result['average']:.2f}")
+    print("\nPer-dimension:")
     for dim, data in result.get("dimensions", {}).items():
         print(f"  {dim:25s}: {data['score']:5.1f} — {data['reason']}")
     print("=" * 40)
@@ -72,7 +72,7 @@ def main() -> None:
     if args.output:
         with open(args.output, "w", encoding="utf-8") as f:
             json.dump(result, f, ensure_ascii=False, indent=2)
-        print(f"评分结果已保存: {args.output}")
+        print(f"Scoring results saved: {args.output}")
 
 
 if __name__ == "__main__":

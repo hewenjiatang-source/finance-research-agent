@@ -1,8 +1,8 @@
 """
-Token 预算追踪器
+Token budget tracker
 
-在 Deep Research 长链路中，上下文长度可能迅速膨胀。
-BudgetTracker 提供显式的 token 使用监控，供编排器决定是否触发压缩或截断。
+In a long Deep Research chain the context length can balloon quickly.
+BudgetTracker provides explicit token usage monitoring so the orchestrator can decide whether to trigger compression or truncation.
 """
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ __all__ = ["BudgetTracker", "BudgetSnapshot"]
 
 @dataclass
 class BudgetSnapshot:
-    """某一时刻的预算快照。"""
+    """Budget snapshot at a point in time."""
     total_tokens: int = 0
     budget_limit: int = 0
     usage_ratio: float = 0.0
@@ -22,69 +22,69 @@ class BudgetSnapshot:
 
 
 class BudgetTracker:
-    """追踪累积 token 消耗，支持动态预算阈值。
+    """Track cumulative token consumption, with dynamic budget thresholds.
 
-    设计要点:
-      - 线程安全由调用方保证（编排器在单 asyncio 事件循环中调用）
-      - 阈值可运行时调整，支持渐进式压缩策略
-      - 记录历史 usage，方便后续分析 token 膨胀曲线
+    Design points:
+      - thread safety is the caller's responsibility (the orchestrator calls from a single asyncio event loop)
+      - thresholds can be adjusted at runtime, supporting progressive compression strategies
+      - usage history is recorded to ease later analysis of the token growth curve
     """
 
     def __init__(self, budget_limit: int = 100_000) -> None:
-        """初始化预算追踪器。
+        """Initialize the budget tracker.
 
         Args:
-            budget_limit: token 预算上限，默认 100K（约 64K 上下文模型的安全区）。
+            budget_limit: token budget limit, default 100K (a safe zone for a ~64K-context model).
         """
         self._budget_limit = max(budget_limit, 1)
         self._total_tokens: int = 0
         self._history: list[int] = []
 
     # ------------------------------------------------------------------
-    # 核心操作
+    # Core operations
     # ------------------------------------------------------------------
 
     def track(self, tokens: int) -> None:
-        """记录本次消耗的 token 数。"""
+        """Record the tokens consumed this time."""
         if tokens < 0:
-            raise ValueError(f"token 消耗不能为负数: {tokens}")
+            raise ValueError(f"Token consumption cannot be negative: {tokens}")
         self._total_tokens += tokens
         self._history.append(tokens)
 
     def get_usage(self) -> int:
-        """返回当前累计 token 消耗。"""
+        """Return the current cumulative token consumption."""
         return self._total_tokens
 
     def get_usage_ratio(self) -> float:
-        """返回当前消耗占预算的比例 [0.0, 1.0+]。"""
+        """Return the share of the budget consumed so far [0.0, 1.0+]."""
         return self._total_tokens / self._budget_limit
 
     def is_over_budget(self) -> bool:
-        """是否已超出预算上限。"""
+        """Whether the budget limit has been exceeded."""
         return self._total_tokens >= self._budget_limit
 
     def is_near_budget(self, threshold: float = 0.8) -> bool:
-        """是否接近预算上限（默认 80%）。
+        """Whether the budget limit is close (default 80%).
 
-        用于提前触发压缩，避免硬截断导致信息丢失。
+        Used to trigger compression early and avoid information loss from hard truncation.
         """
         return self.get_usage_ratio() >= threshold
 
     def set_budget_limit(self, new_limit: int) -> None:
-        """动态调整预算上限。"""
+        """Dynamically adjust the budget limit."""
         self._budget_limit = max(new_limit, 1)
 
     def reset(self) -> None:
-        """重置累计计数（通常在 replan 后调用）。"""
+        """Reset the cumulative counter (usually called after a replan)."""
         self._total_tokens = 0
         self._history.clear()
 
     # ------------------------------------------------------------------
-    # 诊断
+    # Diagnostics
     # ------------------------------------------------------------------
 
     def snapshot(self) -> BudgetSnapshot:
-        """获取当前预算快照。"""
+        """Get the current budget snapshot."""
         return BudgetSnapshot(
             total_tokens=self._total_tokens,
             budget_limit=self._budget_limit,
@@ -93,7 +93,7 @@ class BudgetTracker:
         )
 
     def get_history(self) -> list[int]:
-        """返回每次 track() 的历史记录。"""
+        """Return the history of each track() call."""
         return list(self._history)
 
     def __repr__(self) -> str:

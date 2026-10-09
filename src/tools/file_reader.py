@@ -1,20 +1,20 @@
 """
-文件阅读器 (FileReaderTool)
+File reader (FileReaderTool)
 
-设计理由：
-  深度研究经常需要处理用户上传的文档（PDF 报告、CSV 数据集、Markdown 笔记）。
-  FileReaderTool 负责读取本地文件并转换为 LLM 可消费的文本格式。
+Rationale:
+  Deep research often needs to handle user-uploaded documents (PDF reports, CSV datasets, Markdown notes).
+  FileReaderTool reads local files and converts them to a text format the LLM can consume.
 
-支持格式：
-  - .txt, .md, .markdown → 直接读取
-  - .pdf → 提取文本（PyPDF2 / pdfplumber 降级）
-  - .csv, .json → 读取并格式化摘要
-  - .docx → python-docx 提取（可选依赖）
+Supported formats:
+  - .txt, .md, .markdown -> read directly
+  - .pdf -> extract text (PyPDF2 / pdfplumber fallback)
+  - .csv, .json -> read and format a summary
+  - .docx -> extracted with python-docx (optional dependency)
 
-安全设计：
-  - 只允许读取指定目录下的文件（sandbox 模式）
-  - 文件大小上限（默认 10MB）
-  - 不执行文件中的任何代码
+Security design:
+  - Only files under the specified directory may be read (sandbox mode)
+  - File size limit (default 10MB)
+  - Never executes any code in files
 """
 from __future__ import annotations
 
@@ -26,14 +26,14 @@ from typing import Any
 
 __all__ = ["FileReaderTool"]
 
-# 默认允许的文件扩展名
+# Default allowed file extensions
 _SUPPORTED_EXTS = {".txt", ".md", ".markdown", ".pdf", ".csv", ".json", ".docx"}
-# 默认文件大小上限（字节）
+# Default file size limit (bytes)
 _MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
 
 
 class FileReaderTool:
-    """文件阅读器：读取本地文件并返回结构化文本。"""
+    """File reader: reads local files and returns structured text."""
 
     name: str = "file_reader"
     description: str = (
@@ -43,7 +43,7 @@ class FileReaderTool:
         "Input: {'file_path': str}. Output: file content as formatted text."
     )
 
-    # sentinel 对象：区分"未传入参数"和"显式传入 None"
+    # Sentinel object: distinguishes "argument not passed" from "explicitly passed None"
     _UNSET = object()
 
     def __init__(
@@ -53,11 +53,11 @@ class FileReaderTool:
     ) -> None:
         """
         Args:
-            allowed_base_dir: 允许读取的根目录。
-                              为 None 时不限制（生产环境强烈建议设置）。
-                              不传入时从 .env 读取 FILE_READER_ALLOWED_BASE_DIR。
-            max_file_size: 最大文件大小（字节），超出则拒绝。
-                           不传入时从 .env 读取 FILE_READER_MAX_FILE_SIZE。
+            allowed_base_dir: root directory that may be read.
+                              None means unrestricted (strongly recommended to set in production).
+                              When not passed, FILE_READER_ALLOWED_BASE_DIR is read from .env.
+            max_file_size: maximum file size in bytes; larger files are rejected.
+                           When not passed, FILE_READER_MAX_FILE_SIZE is read from .env.
         """
         from ..utils.env_config import get_env, get_env_int
 
@@ -92,15 +92,15 @@ class FileReaderTool:
         }
 
     async def execute(self, file_path: str) -> str:
-        """读取文件并返回内容。
+        """Read a file and return its content.
 
         Args:
-            file_path: 文件路径（绝对路径或相对路径）。
+            file_path: file path (absolute or relative).
 
         Returns:
-            文件内容的文本表示。
+            Text representation of the file content.
         """
-        # 模拟异步 IO（实际文件读取是 IO-bound，但同步操作也足够快）
+        # Simulate async IO (file reading is IO-bound, but synchronous operations are fast enough)
         import asyncio
         await asyncio.sleep(0)
 
@@ -109,20 +109,20 @@ class FileReaderTool:
         except Exception as e:
             return f"[FileReader Error] Invalid path: {e}"
 
-        # 安全检查 1：目录限制
+        # Security check 1: directory restriction
         if self.allowed_base_dir and not str(path).startswith(str(self.allowed_base_dir)):
             return (
                 f"[FileReader Error] Access denied: {path} is outside the allowed directory "
                 f"{self.allowed_base_dir}."
             )
 
-        # 安全检查 2：文件存在性
+        # Security check 2: file existence
         if not path.exists():
             return f"[FileReader Error] File not found: {path}"
         if not path.is_file():
             return f"[FileReader Error] Not a file: {path}"
 
-        # 安全检查 3：扩展名
+        # Security check 3: extension
         ext = path.suffix.lower()
         if ext not in _SUPPORTED_EXTS:
             return (
@@ -130,7 +130,7 @@ class FileReaderTool:
                 f"Supported: {', '.join(sorted(_SUPPORTED_EXTS))}"
             )
 
-        # 安全检查 4：文件大小
+        # Security check 4: file size
         size = path.stat().st_size
         if size > self.max_file_size:
             return (
@@ -138,14 +138,14 @@ class FileReaderTool:
                 f"(max allowed: {self.max_file_size} bytes)."
             )
 
-        # 读取文件
+        # Read the file
         try:
             return self._read_by_ext(path, ext)
         except Exception as e:
             return f"[FileReader Error] Failed to read {path}: {type(e).__name__}: {e}"
 
     def _read_by_ext(self, path: Path, ext: str) -> str:
-        """根据扩展名选择读取策略。"""
+        """Choose the reading strategy by extension."""
         if ext in (".txt", ".md", ".markdown"):
             return self._read_text(path)
         if ext == ".pdf":
@@ -160,15 +160,15 @@ class FileReaderTool:
 
     @staticmethod
     def _read_text(path: Path) -> str:
-        """读取纯文本文件。"""
+        """Read a plain text file."""
         content = path.read_text(encoding="utf-8", errors="replace")
-        # 添加文件元信息头
+        # Add a file metadata header
         return f"[File: {path.name}]\n[Size: {len(content)} chars]\n\n{content}"
 
     @staticmethod
     def _read_pdf(path: Path) -> str:
-        """读取 PDF 文件。"""
-        # 优先尝试 pdfplumber（表格保留更好）
+        """Read a PDF file."""
+        # Try pdfplumber first (preserves tables better)
         try:
             import pdfplumber
             texts = []
@@ -182,7 +182,7 @@ class FileReaderTool:
         except ImportError:
             pass
 
-        # 降级到 PyPDF2
+        # Fall back to PyPDF2
         try:
             from PyPDF2 import PdfReader
             reader = PdfReader(str(path))
@@ -201,7 +201,7 @@ class FileReaderTool:
 
     @staticmethod
     def _read_csv(path: Path, preview_rows: int = 20) -> str:
-        """读取 CSV 文件，返回结构化摘要。"""
+        """Read a CSV file and return a structured summary."""
         try:
             import pandas as pd
             df = pd.read_csv(path)
@@ -223,11 +223,11 @@ class FileReaderTool:
 
     @staticmethod
     def _read_json(path: Path, max_depth: int = 3) -> str:
-        """读取 JSON 文件，返回格式化摘要。"""
+        """Read a JSON file and return a formatted summary."""
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
 
-        # 计算基本统计
+        # Compute basic statistics
         def _summarize(obj, depth: int = 0) -> str:
             if depth > max_depth:
                 return "..."
@@ -251,7 +251,7 @@ class FileReaderTool:
 
     @staticmethod
     def _read_docx(path: Path) -> str:
-        """读取 Word 文档。"""
+        """Read a Word document."""
         try:
             from docx import Document
             doc = Document(str(path))

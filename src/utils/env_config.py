@@ -1,11 +1,11 @@
 """
-环境变量配置加载器
+Environment variable configuration loader
 
-统一封装 .env / .env.local 的加载逻辑，供所有模块使用。
-设计原则：
-  1. 敏感信息（API Key、Base URL）只从 .env 读取，不硬编码在源码中。
-  2. 构造函数参数仅作为 .env 的覆盖，方便单元测试和特殊场景。
-  3. 幂等加载：多次调用不会重复读取文件。
+A unified wrapper around loading .env / .env.local, used by all modules.
+Design principles:
+  1. Secrets (API keys, base URLs) are read only from .env and never hard-coded in the source.
+  2. Constructor arguments are only overrides of .env, convenient for unit tests and special cases.
+  3. Idempotent loading: repeated calls do not re-read the files.
 """
 from __future__ import annotations
 
@@ -21,22 +21,22 @@ _ENV_LOADED = False
 
 
 def ensure_env_loaded() -> None:
-    """确保 .env 文件已加载（幂等）。
+    """Make sure the .env files are loaded (idempotent).
 
-    加载顺序（后加载的优先级更高）：
-      1. .env（项目级默认配置）
-      2. .env.local（用户本地自定义，被 .gitignore 忽略）
+    Load order (later loads take priority):
+      1. .env (project-level defaults)
+      2. .env.local (user-local customization, ignored by .gitignore)
     """
     global _ENV_LOADED
     if _ENV_LOADED:
         return
 
-    # 1. 加载项目级 .env
+    # 1. load the project-level .env
     env_path = os.path.join(os.getcwd(), ".env")
     if os.path.exists(env_path):
         load_dotenv(dotenv_path=env_path)
 
-    # 2. 加载用户级 .env.local（优先级更高）
+    # 2. load the user-level .env.local (higher priority)
     local_env = os.path.join(os.getcwd(), ".env.local")
     if os.path.exists(local_env):
         load_dotenv(dotenv_path=local_env, override=True)
@@ -45,9 +45,9 @@ def ensure_env_loaded() -> None:
 
 
 def get_env(key: str, default: str | None = None) -> str | None:
-    """读取环境变量，支持空字符串转 None。
+    """Read an environment variable; empty strings become None.
 
-    首次调用会自动触发 ensure_env_loaded()。
+    The first call automatically triggers ensure_env_loaded().
     """
     ensure_env_loaded()
     val = os.getenv(key, default)
@@ -57,32 +57,32 @@ def get_env(key: str, default: str | None = None) -> str | None:
 
 
 def get_env_int(key: str, default: int) -> int:
-    """读取环境变量并转为 int。"""
+    """Read an environment variable and convert it to int."""
     val = get_env(key)
     if val is None:
         return default
     try:
         return int(val)
     except ValueError:
-        raise ValueError(f"环境变量 {key} 的值 '{val}' 无法转为整数")
+        raise ValueError(f"The value '{val}' of environment variable {key} cannot be converted to an integer")
 
 
 def get_env_float(key: str, default: float) -> float:
-    """读取环境变量并转为 float。"""
+    """Read an environment variable and convert it to float."""
     val = get_env(key)
     if val is None:
         return default
     try:
         return float(val)
     except ValueError:
-        raise ValueError(f"环境变量 {key} 的值 '{val}' 无法转为浮点数")
+        raise ValueError(f"The value '{val}' of environment variable {key} cannot be converted to a float")
 
 
 def get_env_bool(key: str, default: bool = False) -> bool:
-    """读取环境变量并转为 bool。
+    """Read an environment variable and convert it to bool.
 
-    以下值视为 True：true, True, 1, yes, YES
-    以下值视为 False：false, False, 0, no, NO
+    The following values count as True: true, True, 1, yes, YES
+    The following values count as False: false, False, 0, no, NO
     """
     val = get_env(key)
     if val is None:

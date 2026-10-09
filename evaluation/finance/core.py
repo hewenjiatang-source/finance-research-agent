@@ -1,4 +1,4 @@
-"""单份报告的评测入口：evaluate_report(report_md, evidence, gold, judge) -> dict。"""
+"""Entry point for evaluating one report: evaluate_report(report_md, evidence, gold, judge) -> dict."""
 from __future__ import annotations
 
 import re
@@ -38,11 +38,11 @@ def evaluate_report(report: str, evidence: list[dict], gold: Gold | None = None,
         "n_citations_in_text": len(ids_in_text),
         "dangling_ids": dangling_ids,
         "counts": dict(cc),
-        # 引用精度：带引用的数字里，被引来源真的包含该数字的比例
+        # citation precision: of the cited numbers, the share whose cited source really contains the number
         "citation_precision": _rate(cc["supported"], cited),
-        # 引用覆盖：数字里带引用的比例
+        # citation coverage: share of numbers that carry a citation
         "citation_coverage": _rate(cited, len(crecs)),
-        # 无引用数字里连任何证据都找不到的比例 = 疑似编造/凭记忆
+        # among uncited numbers, share that no evidence supports = suspected fabrication / from memory
         "uncited_ungrounded_rate": _rate(cc["uncited_ungrounded"], uncited),
         "unsupported_rate": _rate(cc["unsupported"] + cc["dangling"] + cc["misattributed"], cited),
     }

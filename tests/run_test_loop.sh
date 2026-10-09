@@ -1,5 +1,5 @@
 #!/bin/bash
-# 持续测试循环 — 每个 query 独立日志，实时监控
+# Continuous test loop - separate log per query, real-time monitoring
 
 cd "$(dirname "$0")/.."
 source .venv/bin/activate
@@ -19,40 +19,40 @@ for Q in "${QUERIES[@]}"; do
     echo "[Test $IDX] Starting: ${Q:0:60}..."
     echo "========================================"
 
-    # 清理环境
+    # Clean up environment
     # rm -f data/memory.db
     # rm -rf "outputs/reports/test${IDX}"
     mkdir -p "outputs/reports/test${IDX}"
 
     LOG="outputs/test_${IDX}.log"
 
-    # 运行（前台运行，输出实时可见）
+    # Run (foreground, output visible in real time)
     PYTHONUNBUFFERED=1 python scripts/run_research.py \
         --query "$Q" \
         --output_dir "outputs/reports/test${IDX}" \
         > "$LOG" 2>&1
 
-    # 提取关键指标
+    # Extract key metrics
     echo ""
-    echo "[Test $IDX] 结果摘要:"
+    echo "[Test $IDX] Result summary:"
     grep -E "DAG 生成完成|子任务完成|报告生成完成|耗时:|置信度" "$LOG" | tail -8 || true
 
-    # 检查报告文件
+    # Check report file
     REPORT=$(find "outputs/reports/test${IDX}" -name "*.md" | head -1)
     if [ -f "$REPORT" ]; then
         LEN=$(wc -c < "$REPORT")
-        echo "[Test $IDX] 报告: $REPORT ($LEN bytes)"
-        # 检查是否是空/失败报告
+        echo "[Test $IDX] Report: $REPORT ($LEN bytes)"
+        # Check whether the report is empty/failed
         if grep -q "Research failed" "$REPORT"; then
-            echo "[Test $IDX] ⚠️ 报告标记为失败"
+            echo "[Test $IDX] ⚠️ Report marked as failed"
         else
-            echo "[Test $IDX] ✅ 报告生成成功"
+            echo "[Test $IDX] ✅ Report generated successfully"
         fi
     else
-        echo "[Test $IDX] ❌ 未生成报告文件"
+        echo "[Test $IDX] ❌ Report file not generated"
     fi
 
-    # 短暂间隔，避免 API rate limit
+    # Short pause to avoid API rate limits
     sleep 10
 
     IDX=$((IDX + 1))
@@ -60,5 +60,5 @@ done
 
 echo ""
 echo "========================================"
-echo "全部测试完成"
+echo "All tests completed"
 echo "========================================"

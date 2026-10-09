@@ -1,13 +1,13 @@
 """
-M6 自进化引擎 — Trajectory 收集器
+M6 self-evolution engine — Trajectory collector
 
-TrajectoryCollector 负责将 DeepResearch Agent 的完整执行轨迹收集并转换为
-veRL 训练所需的格式。它是 Solver（DeepResearch Agent）与训练框架之间的适配层。
+TrajectoryCollector gathers the full execution trajectory of the DeepResearch Agent and converts it into
+the format veRL training needs. It is the adapter layer between the Solver (DeepResearch Agent) and the training framework.
 
-设计决策：
-1. 收集的内容包括：query、report、多轮交互轨迹、搜索次数、重规划次数等。
-2. to_verl_format 方法复用项目一的 parquet 构建逻辑，输出标准格式。
-3. 支持批量收集，便于后续构建训练数据集。
+Design decisions:
+1. Collected content includes: query, report, multi-turn interaction trajectory, search count, replan count, etc.
+2. The to_verl_format method reuses project one's parquet-building logic and outputs the standard format.
+3. Batch collection is supported to ease building training datasets later.
 """
 from __future__ import annotations
 
@@ -21,10 +21,10 @@ __all__ = ["TrajectoryCollector"]
 
 
 class TrajectoryCollector:
-    """Trajectory 收集与格式转换器。
+    """Trajectory collector and format converter.
 
     Attributes:
-        system_prompt: 可选的系统级 prompt，用于 veRL 数据格式。
+        system_prompt: optional system-level prompt used in the veRL data format.
     """
 
     def __init__(self, system_prompt: str = ""):
@@ -36,15 +36,15 @@ class TrajectoryCollector:
         report: ResearchReport,
         trajectories: list[dict[str, Any]],
     ) -> dict[str, Any]:
-        """收集单次 DeepResearch 的完整轨迹。
+        """Collect the full trajectory of one DeepResearch run.
 
         Args:
-            query: 原始研究问题。
-            report: 最终生成的研究报告。
-            trajectories: 多轮交互轨迹列表，每轮包含 role/content/tool_calls 等。
+            query: the original research question.
+            report: the final generated research report.
+            trajectories: list of multi-turn interaction trajectories, each turn containing role/content/tool_calls, etc.
 
         Returns:
-            统一格式的 trajectory 字典，包含 veRL 所需的所有字段。
+            Unified trajectory dict containing every field veRL needs.
         """
         return {
             "query": query,
@@ -56,38 +56,38 @@ class TrajectoryCollector:
             "adversarial_rounds": report.adversarial_rounds,
             "final_score": report.final_score,
             "trajectories": trajectories,
-            # 元信息
+            # Meta information
             "trajectory_length": len(trajectories),
             "content_length": len(report.content),
             "source_count": len(report.sources),
         }
 
     def to_verl_format(self, data: dict[str, Any]) -> dict[str, Any]:
-        """将收集的 trajectory 转换为 veRL 训练所需的 parquet 行格式。
+        """Convert a collected trajectory into the parquet row format veRL training needs.
 
-        veRL 期望的字段（与项目一 scripts/11_build_grpo_parquet.py 对齐）：
-        - prompt: list[dict] — 多轮对话格式，包含 system + user 初始 query
-        - response: str — 模型的完整输出（report content）
-        - trajectories: list[dict] — 多轮交互轨迹（observation, action pairs）
-        - metadata: dict — 额外元信息
+        Fields veRL expects (aligned with project one's scripts/11_build_grpo_parquet.py):
+        - prompt: list[dict] — multi-turn conversation format, containing system + the initial user query
+        - response: str — the model's full output (report content)
+        - trajectories: list[dict] — multi-turn interaction trajectory (observation, action pairs)
+        - metadata: dict — extra meta information
 
         Args:
-            data: collect() 方法的输出。
+            data: output of collect().
 
         Returns:
-            veRL 格式的字典，可直接写入 parquet。
+            Dict in veRL format, ready to write to parquet.
         """
         query = data.get("query", "")
         trajectories = data.get("trajectories", [])
         report_content = data.get("report_content", "")
 
-        # 构建 prompt 字段：system + user query
+        # Build the prompt field: system + user query
         prompt_messages: list[dict[str, str]] = []
         if self.system_prompt:
             prompt_messages.append({"role": "system", "content": self.system_prompt})
         prompt_messages.append({"role": "user", "content": query})
 
-        # metadata 包含所有原始字段（去除大字段避免 parquet 膨胀）
+        # metadata contains all original fields (large fields removed to avoid parquet bloat)
         metadata = {
             "query": query,
             "num_searches": data.get("num_searches", 0),
@@ -109,16 +109,16 @@ class TrajectoryCollector:
     def batch_to_verl(
         self, batch: list[dict[str, Any]]
     ) -> list[dict[str, Any]]:
-        """批量转换为 veRL 格式。
+        """Convert a batch to veRL format.
 
         Args:
-            batch: collect() 输出列表。
+            batch: list of collect() outputs.
 
         Returns:
-            veRL 格式字典列表。
+            List of veRL-format dicts.
         """
         return [self.to_verl_format(item) for item in batch]
 
     def serialize(self, data: dict[str, Any]) -> str:
-        """将 trajectory 序列化为 JSON 字符串（用于日志或持久化）。"""
+        """Serialize a trajectory to a JSON string (for logging or persistence)."""
         return json.dumps(data, ensure_ascii=False, indent=2)

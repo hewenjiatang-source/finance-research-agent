@@ -1,7 +1,7 @@
-"""Planner 子包：M2 自适应规划层。"""
+"""Planner subpackage: M2 adaptive planning layer."""
 from __future__ import annotations
 
-# 为避免循环导入，请直接从子模块导入：
+# To avoid circular imports, import directly from the submodules:
 #   from planner.dag import DAG
 #   from planner.planner import Planner
 #   from planner.budget_tracker import BudgetTracker

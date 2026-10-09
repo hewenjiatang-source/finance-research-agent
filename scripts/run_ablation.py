@@ -3,16 +3,16 @@
 """
 scripts/run_ablation.py
 ================================================================================
-消融实验入口脚本（合并了原 run_baseline.py + run_adversarial_ablation.py）。
+Ablation experiment entry script (merges the former run_baseline.py + run_adversarial_ablation.py).
 
-支持两种消融模式:
-  --mode module : 模块消融 (full / no_adversarial / no_compressor / no_memory / no_evolution)
-  --mode rounds : 对抗轮数消融 (0/1/2/3 轮)
+Supports two ablation modes:
+  --mode module : module ablation (full / no_adversarial / no_compressor / no_memory / no_evolution)
+  --mode rounds : adversarial-round ablation (0/1/2/3 rounds)
 
-统计增强:
-  - 每道题保留配对分数
-  - full vs 消融配置输出 bootstrap 95% CI + p-value
-  - 输出 Cohen's d 效应量
+Statistical enhancements:
+  - keep paired scores for each question
+  - full vs ablated configs: output bootstrap 95% CI + p-value
+  - output Cohen's d effect size
 
 Usage:
     python scripts/run_ablation.py --mode module --questions 10
@@ -44,10 +44,10 @@ from evaluation.metrics.stats import bootstrap_ci_paired, cohens_d
 
 
 def evaluate_with_rules(report: str, qid: str, bench: ResearchBench) -> dict[str, Any]:
-    """用规则指标对单篇报告评分。"""
+    """Score a single report with rule-based metrics."""
     q = next((x for x in bench.questions if x["id"] == qid), None)
     if q is None:
-        raise ValueError(f"未找到题目 ID: {qid}")
+        raise ValueError(f"Question ID not found: {qid}")
 
     expected_topics = q.get("expected_topics", [])
     ground_truth = q.get("ground_truth", {})
@@ -84,9 +84,9 @@ def run_single_system(
     questions: list[dict[str, Any]],
     bench: ResearchBench,
 ) -> dict[str, Any]:
-    """跑单个系统配置，返回每道题的评分结果。"""
+    """Run a single system configuration and return per-question scores."""
     print(f"\n{'='*60}")
-    print(f"[消融] {system_name}: {desc}")
+    print(f"[Ablation] {system_name}: {desc}")
     print(f"{'='*60}")
 
     cfg = AblationStudy.override_config(config, overrides)
@@ -140,7 +140,7 @@ def compute_ablation_stats(
     full_result: dict[str, Any],
     ablation_result: dict[str, Any],
 ) -> dict[str, Any]:
-    """计算 full vs 消融配置的统计显著性（配对差异）。"""
+    """Compute statistical significance of full vs ablated configs (paired differences)."""
     full_scores = []
     ablation_scores = []
 
@@ -162,17 +162,17 @@ def compute_ablation_stats(
 
 
 def run_module_ablation(config: dict, questions: list[dict[str, Any]], output_dir: str) -> None:
-    """运行模块消融实验，输出统计显著性。"""
+    """Run the module ablation experiment and report statistical significance."""
     bench = ResearchBench()
     systems = AblationStudy.DEFAULT_MODULE_ABLATIONS
 
-    # 跑所有配置
+    # Run all configurations
     all_results: dict[str, dict[str, Any]] = {}
     for name, (desc, overrides) in systems.items():
         result = run_single_system(name, desc, config, overrides, questions, bench)
         all_results[name] = result
 
-    # 以 full 为基准，计算统计显著性
+    # Use full as the baseline and compute statistical significance
     full_result = all_results["full"]
     stats_report: dict[str, Any] = {}
     for name, result in all_results.items():
@@ -180,9 +180,9 @@ def run_module_ablation(config: dict, questions: list[dict[str, Any]], output_di
             continue
         stats_report[name] = compute_ablation_stats(full_result, result)
 
-    # 组装输出
+    # Assemble output
     report = {
-        "evaluation_name": "DeepResearch Agent 模块消融实验（含统计显著性）",
+        "evaluation_name": "DeepResearch Agent Module Ablation Experiment (with statistical significance)",
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
         "num_questions": len(questions),
         "systems": [
@@ -200,36 +200,36 @@ def run_module_ablation(config: dict, questions: list[dict[str, Any]], output_di
 
     filepath = AblationStudy.save_results(report, output_dir, prefix="module_ablation")
 
-    # 打印摘要
+    # Print summary
     print(f"\n{'='*60}")
-    print("模块消融摘要 + 统计显著性")
+    print("Module ablation summary + statistical significance")
     print(f"{'='*60}")
     for name, score in report["summary"].items():
         print(f"  {name:20s}: {score:.4f}")
 
-    print(f"\n统计检验 (full vs 消融, 配对 bootstrap 95% CI):")
+    print(f"\nStatistical test (full vs ablated, paired bootstrap 95% CI):")
     for name, st in stats_report.items():
-        sig = "✓ 显著" if st["significant"] else "✗ 不显著"
+        sig = "✓ Significant" if st["significant"] else "✗ Not significant"
         print(f"  {name:20s}: Δ={st['mean_diff']:+.4f} "
               f"CI=[{st['ci_lower']:+.4f}, {st['ci_upper']:+.4f}] "
               f"p={st['p_value']:.4f} d={st['cohens_d']:.3f} {sig}")
-    print(f"\n结果已保存: {filepath}")
+    print(f"\nResults saved: {filepath}")
 
 
 def run_rounds_ablation(config: dict, questions: list[dict[str, Any]], max_rounds: int, output_dir: str) -> None:
-    """运行对抗轮数消融实验，输出统计显著性。"""
+    """Run the adversarial-round ablation experiment and report statistical significance."""
     bench = ResearchBench()
 
     all_results: dict[str, dict[str, Any]] = {}
     for rounds in range(max_rounds + 1):
-        desc = f"对抗轮数={rounds}"
+        desc = f"adversarial rounds={rounds}"
         overrides = {
             "adversarial": {"max_rounds": rounds, "enabled": rounds > 0}
         }
         result = run_single_system(f"adv_{rounds}", desc, config, overrides, questions, bench)
         all_results[f"adv_{rounds}"] = result
 
-    # 以 adv_0 为基准，计算与 adv_N 的差异
+    # Use adv_0 as the baseline and compute differences against adv_N
     base_result = all_results["adv_0"]
     stats_report: dict[str, Any] = {}
     for name, result in all_results.items():
@@ -238,7 +238,7 @@ def run_rounds_ablation(config: dict, questions: list[dict[str, Any]], max_round
         stats_report[name] = compute_ablation_stats(base_result, result)
 
     report = {
-        "evaluation_name": "DeepResearch Agent 对抗轮数消融实验（含统计显著性）",
+        "evaluation_name": "DeepResearch Agent Adversarial-Round Ablation Experiment (with statistical significance)",
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
         "num_questions": len(questions),
         "systems": [
@@ -256,45 +256,45 @@ def run_rounds_ablation(config: dict, questions: list[dict[str, Any]], max_round
 
     filepath = AblationStudy.save_results(report, output_dir, prefix="rounds_ablation")
 
-    # 同时保存 summary 扁平格式
+    # Also save the summary in flat format
     summary_path = os.path.join(output_dir, "adv_results_summary.json")
     with open(summary_path, "w", encoding="utf-8") as f:
         json.dump(report["summary"], f, ensure_ascii=False, indent=2)
 
     print(f"\n{'='*60}")
-    print("对抗轮数消融摘要 + 统计显著性")
+    print("Adversarial-round ablation summary + statistical significance")
     print(f"{'='*60}")
     for k, v in report["summary"].items():
         print(f"  {k:10s}: {v:.4f}")
 
-    print(f"\n统计检验 (adv_0 vs adv_N, 配对 bootstrap 95% CI):")
+    print(f"\nStatistical test (adv_0 vs adv_N, paired bootstrap 95% CI):")
     for name, st in stats_report.items():
-        sig = "✓ 显著" if st["significant"] else "✗ 不显著"
+        sig = "✓ Significant" if st["significant"] else "✗ Not significant"
         print(f"  {name:10s}: Δ={st['mean_diff']:+.4f} "
               f"CI=[{st['ci_lower']:+.4f}, {st['ci_upper']:+.4f}] "
               f"p={st['p_value']:.4f} d={st['cohens_d']:.3f} {sig}")
-    print(f"\n结果已保存: {filepath}")
-    print(f"Summary 已保存: {summary_path}")
+    print(f"\nResults saved: {filepath}")
+    print(f"Summary saved: {summary_path}")
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="DeepResearch Agent 消融实验脚本",
+        description="DeepResearch Agent ablation experiment script",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-示例:
+Examples:
   python scripts/run_ablation.py --mode module --questions 10
   python scripts/run_ablation.py --mode rounds --questions 10 --max_rounds 3
         """,
     )
     parser.add_argument("--mode", type=str, choices=["module", "rounds"], default="module",
-                        help="消融模式: module=模块消融, rounds=对抗轮数消融")
-    parser.add_argument("--questions", type=int, default=10, help="评测题目数量（默认 10）")
+                        help="Ablation mode: module=module ablation, rounds=adversarial-round ablation")
+    parser.add_argument("--questions", type=int, default=10, help="Number of evaluation questions (default 10)")
     parser.add_argument("--domain", type=str, default=None, choices=["tech", "med", "fin"],
-                        help="按领域过滤题目（仅 module 模式）")
-    parser.add_argument("--max_rounds", type=int, default=3, help="最大对抗轮数（仅 rounds 模式）")
-    parser.add_argument("--config", type=str, default=None, help="配置文件路径")
-    parser.add_argument("--output_dir", type=str, default="outputs/evaluation", help="输出目录")
+                        help="Filter questions by domain (module mode only)")
+    parser.add_argument("--max_rounds", type=int, default=3, help="Maximum adversarial rounds (rounds mode only)")
+    parser.add_argument("--config", type=str, default=None, help="Config file path")
+    parser.add_argument("--output_dir", type=str, default="outputs/evaluation", help="Output directory")
     parser.add_argument("--log_level", type=str, default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"])
     args = parser.parse_args()
 
@@ -302,11 +302,11 @@ def main() -> None:
     logger = logging.getLogger("main")
 
     config = load_config(args.config)
-    logger.info(f"配置加载完成: {args.config or 'configs/default.yaml'}")
+    logger.info(f"Config loaded: {args.config or 'configs/default.yaml'}")
 
     bench = ResearchBench()
     questions = bench.get_questions(domain=args.domain, n=args.questions)
-    logger.info(f"加载 {len(questions)} 道评测题")
+    logger.info(f"Loaded {len(questions)} evaluation questions")
 
     if args.mode == "module":
         run_module_ablation(config, questions, args.output_dir)

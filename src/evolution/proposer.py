@@ -1,14 +1,14 @@
 """
-M6 自进化引擎 — 研究问题生成器 (Proposer)
+M6 self-evolution engine — research question generator (Proposer)
 
-Proposer 生成三级难度（L1/L2/L3）的研究问题，支持自适应难度校准、
-质量过滤和多样性约束。
+The Proposer generates research questions at three difficulty levels (L1/L2/L3), supporting adaptive difficulty calibration,
+quality filtering and diversity constraints.
 
-设计决策：
-1. 三级难度对应不同搜索深度，确保训练数据覆盖简单到复杂的全谱系。
-2. 倒U型自适应权重：成功率接近 50% 时权重最高，避免数据集过于简单或困难。
-3. embedding 相似度过滤：新生成的问题与已有问题相似度 < 0.7，保证多样性。
-4. 成功率过滤：太简单 (>80%) 或太难 (<20%) 的问题被淘汰，维持合理学习梯度。
+Design decisions:
+1. The three levels correspond to different search depths, so training data covers the full spectrum from simple to complex.
+2. Inverted-U adaptive weight: weight is highest when the success rate is near 50%, avoiding a dataset that is too easy or too hard.
+3. Embedding similarity filter: a new question must have similarity < 0.7 with existing ones, ensuring diversity.
+4. Success-rate filter: questions that are too easy (>80%) or too hard (<20%) are dropped, keeping a reasonable learning gradient.
 """
 from __future__ import annotations
 
@@ -21,30 +21,30 @@ __all__ = ["Proposer"]
 
 
 # ============================================================================
-# Prompt 模板
+# Prompt templates
 # ============================================================================
 
 SYSTEM_PROPOSER = (
-    "你是一位研究问题设计专家。请根据要求生成高质量、有挑战性且可验证的研究问题。"
-    "输出必须是 JSON 格式。"
+    "You are an expert in designing research questions. Generate high-quality, challenging and verifiable research questions as required. "
+    "Output must be JSON."
 )
 
-PROMPT_GENERATE = """请生成 {n} 个难度为 {difficulty} 的研究问题。
+PROMPT_GENERATE = """Generate {n} research questions of difficulty {difficulty}.
 
-难度定义：
-- L1（事实查询）：1-2次搜索即可回答，答案明确且可验证。
-- L2（多步推理）：3-6次搜索，需要整合多来源信息、进行因果或比较分析。
-- L3（跨领域综合）：5-10+次搜索，需要跨学科知识、长程推理、处理冲突信息。
+Difficulty definitions:
+- L1 (fact lookup): answerable with 1-2 searches; the answer is clear and verifiable.
+- L2 (multi-step reasoning): 3-6 searches; requires integrating multi-source information and causal or comparative analysis.
+- L3 (cross-domain synthesis): 5-10+ searches; requires interdisciplinary knowledge, long-horizon reasoning and handling conflicting information.
 
-要求：
-1. 每个问题必须有明确的客观答案或评判标准。
-2. 避免过于宽泛（如"谈谈人工智能"）或过于狭窄（如"某具体人的生日"）。
-3. 涉及最新事件时，确保事件发生在 2023 年之前（保证可验证性）。
-4. 问题之间不得重复或高度相似。
+Requirements:
+1. Every question must have a clear objective answer or evaluation criterion.
+2. Avoid being too broad (e.g. "Tell me about artificial intelligence") or too narrow (e.g. "a specific person's birthday").
+3. For recent events, make sure they occurred before 2023 (to guarantee verifiability).
+4. Questions must not duplicate or closely resemble each other.
 
-领域偏好（可选）：{domains}
+Domain preference (optional): {domains}
 
-请按以下 JSON 格式输出：
+Output in the following JSON format:
 {
   "questions": [
     {
@@ -52,7 +52,7 @@ PROMPT_GENERATE = """请生成 {n} 个难度为 {difficulty} 的研究问题。
       "difficulty": "L1|L2|L3",
       "expected_searches": int,
       "domain": "string",
-      "verification_hint": "string"   // 如何验证答案正确性
+      "verification_hint": "string"   // how to verify the answer is correct
     }
   ]
 }
@@ -60,16 +60,16 @@ PROMPT_GENERATE = """请生成 {n} 个难度为 {difficulty} 的研究问题。
 
 
 # ============================================================================
-# Proposer 实现
+# Proposer implementation
 # ============================================================================
 
 class Proposer:
-    """研究问题生成器，支持三级难度和自适应校准。
+    """Research question generator supporting three difficulty levels and adaptive calibration.
 
     Attributes:
-        policy: VLLMPolicy 实例。
-        difficulty_history: 记录每个问题的难度、成功率和平均得分。
-        _embedding_cache: 已生成问题的 embedding 缓存，用于多样性检查。
+        policy: a VLLMPolicy instance.
+        difficulty_history: records each question's difficulty, success rate and average score.
+        _embedding_cache: embedding cache of generated questions, used for diversity checks.
     """
 
     def __init__(
@@ -78,7 +78,7 @@ class Proposer:
         difficulty_history: dict[str, dict[str, Any]] | None = None,
     ):
         self.policy = policy
-        # history 结构: {question_str: {"difficulty": "L1", "success": bool, "score": float, "attempts": int}}
+        # history structure: {question_str: {"difficulty": "L1", "success": bool, "score": float, "attempts": int}}
         self.difficulty_history = difficulty_history or {}
         self._embedding_cache: list[list[float]] = []
 
@@ -87,23 +87,23 @@ class Proposer:
         n: int = 32,
         domains: list[str] | None = None,
     ) -> list[str]:
-        """生成一批研究问题。
+        """Generate a batch of research questions.
 
-        执行流程：
-        1. 根据自适应权重决定 L1/L2/L3 的生成比例。
-        2. 按批次调用 LLM 生成问题。
-        3. 过滤太简单/太难的问题（基于历史）。
-        4. 用 embedding 相似度去重，确保多样性。
+        Flow:
+        1. Decide the L1/L2/L3 generation ratio from the adaptive weights.
+        2. Call the LLM in batches to generate questions.
+        3. Filter out questions that are too easy / too hard (based on history).
+        4. De-duplicate by embedding similarity to ensure diversity.
 
         Args:
-            n: 目标生成数量。
-            domains: 可选的领域偏好列表。
+            n: target number to generate.
+            domains: optional list of domain preferences.
 
         Returns:
-            研究问题字符串列表。
+            List of research question strings.
         """
         weights = self.get_difficulty_weights()
-        # 根据权重分配各难度生成数量
+        # Allocate the number to generate per difficulty by weight
         total_weight = sum(weights.values())
         if total_weight == 0.0:
             counts = {"L1": n // 3, "L2": n // 3, "L3": n - 2 * (n // 3)}
@@ -116,13 +116,13 @@ class Proposer:
                 remaining -= cnt
             counts["L3"] = remaining
 
-        domains_text = ", ".join(domains) if domains else "不限"
+        domains_text = ", ".join(domains) if domains else "unrestricted"
         results: list[str] = []
 
         for difficulty, count in counts.items():
             if count <= 0:
                 continue
-            # 每次最多生成 8 个，避免 prompt 过长
+            # Generate at most 8 at a time to keep the prompt short
             batch_size = 8
             generated = 0
             while generated < count:
@@ -144,13 +144,13 @@ class Proposer:
                         q = item.get("question", "").strip()
                         if not q:
                             continue
-                        # 历史过滤：太简单或太难的问题跳过
+                        # History filter: skip questions that are too easy or too hard
                         hist = self.difficulty_history.get(q)
                         if hist and hist.get("attempts", 0) >= 3:
                             success_rate = hist.get("success_rate", 0.5)
                             if success_rate > 0.8 or success_rate < 0.2:
                                 continue
-                        # 多样性过滤
+                        # Diversity filter
                         if not self._is_diverse(q):
                             continue
                         results.append(q)
@@ -158,7 +158,7 @@ class Proposer:
                         if generated >= count:
                             break
                 except Exception:
-                    # 生成失败时填充简单占位问题，避免批次为空
+                    # On generation failure, fill with simple placeholder questions so the batch is not empty
                     fallback = self._fallback_question(difficulty, domains)
                     results.append(fallback)
                     generated += 1
@@ -168,12 +168,12 @@ class Proposer:
     def update_history(
         self, question: str, success: bool, score: float
     ) -> None:
-        """更新问题的历史记录，用于自适应校准。
+        """Update a question's history, for adaptive calibration.
 
         Args:
-            question: 研究问题文本。
-            success: 是否成功（score >= 6.0 视为成功）。
-            score: 最终评分。
+            question: research question text.
+            success: whether it succeeded (score >= 6.0 counts as success).
+            score: final score.
         """
         if question not in self.difficulty_history:
             self.difficulty_history[question] = {
@@ -191,33 +191,33 @@ class Proposer:
         h["avg_score"] = h["total_score"] / h["attempts"]
 
     def get_difficulty_weights(self) -> dict[str, float]:
-        """计算三级难度的自适应权重。
+        """Compute the adaptive weights of the three difficulty levels.
 
-        倒U型公式: weight = 1 - 4 * (success_rate - 0.5) ^ 2
-        成功率越接近 50%，权重越高；过于简单或困难的问题权重降低。
+        Inverted-U formula: weight = 1 - 4 * (success_rate - 0.5) ^ 2
+        The closer the success rate is to 50%, the higher the weight; questions that are too easy or too hard get lower weight.
 
         Returns:
-            难度权重字典，键: L1/L2/L3。
+            Difficulty weight dict, keys: L1/L2/L3.
         """
         weights: dict[str, float] = {"L1": 1.0, "L2": 1.0, "L3": 1.0}
         for question, hist in self.difficulty_history.items():
             sr = hist.get("success_rate", 0.5)
-            # 估算难度级别（简单启发：搜索次数映射）
-            # 这里假设历史中没有显式难度，统一计算
+            # Estimate the difficulty level (simple heuristic: map from search count)
+            # History has no explicit difficulty here, so compute uniformly
             w = 1.0 - 4.0 * (sr - 0.5) ** 2
             w = max(0.1, min(1.0, w))
-            # 由于历史不区分难度，这里将权重影响平摊
+            # Since history does not distinguish difficulty, spread the weight effect evenly
             for lvl in weights:
                 weights[lvl] += w
 
-        # 归一化
+        # Normalize
         total = sum(weights.values())
         if total > 0.0:
             weights = {k: v / total for k, v in weights.items()}
         return weights
 
     def _is_diverse(self, question: str, threshold: float = 0.7) -> bool:
-        """检查新问题是否与已有问题足够多样（embedding 余弦相似度 < threshold）。"""
+        """Check whether a new question is diverse enough from existing ones (embedding cosine similarity < threshold)."""
         if not self._embedding_cache:
             return True
         try:
@@ -232,7 +232,7 @@ class Proposer:
             self._embedding_cache.append(emb)
             return True
         except Exception:
-            # embedding 失败时默认接受
+            # On embedding failure accept by default
             return True
 
     @staticmethod
@@ -249,20 +249,20 @@ class Proposer:
         return dot / (norm_a * norm_b)
 
     def _fallback_question(self, difficulty: str, domains: list[str] | None) -> str:
-        """生成兜底问题，避免批次为空。"""
-        domain = random.choice(domains) if domains else "科技"
+        """Generate fallback questions so the batch is not empty."""
+        domain = random.choice(domains) if domains else "technology"
         templates = {
             "L1": [
-                f"{domain}领域在2022年的市场规模是多少？",
-                f"{domain}的主要应用领域有哪些？",
+                f"What was the market size of the {domain} sector in 2022?",
+                f"What are the main application areas of {domain}?",
             ],
             "L2": [
-                f"对比分析{domain}领域2020-2022年的技术演进与商业落地情况。",
-                f"{domain}的发展对就业市场产生了哪些多维度影响？",
+                f"Compare the technical evolution and commercial adoption of the {domain} sector from 2020 to 2022.",
+                f"What multi-dimensional impacts has the development of {domain} had on the job market?",
             ],
             "L3": [
-                f"从经济、伦理、技术三个维度综合评估{domain}的未来十年发展趋势。",
-                f"跨学科视角下，{domain}与生物医药、气候科学的交叉创新有哪些关键突破？",
+                f"Assess the likely development trends of {domain} over the next decade from economic, ethical and technical dimensions.",
+                f"From an interdisciplinary perspective, what are the key breakthroughs at the intersection of {domain} with biomedicine and climate science?",
             ],
         }
         return random.choice(templates.get(difficulty, templates["L2"]))

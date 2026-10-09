@@ -1,15 +1,15 @@
 """
-Context Compressor 模块：统一压缩入口
+Context Compressor module: unified compression entry point
 
-设计决策：
-1. 三级渐进式压缩：L1 相关性过滤 → L2 关键句提取 → L3 层级摘要
-2. 自动触发：根据当前 token 使用量占 budget 的比例自动选择压缩级别
+Design decisions:
+1. Three-level progressive compression: L1 relevance filtering → L2 key-sentence extraction → L3 hierarchical summary
+2. Automatic triggering: the compression level is chosen from the ratio of current token usage to the budget
    - >60% budget: L1
    - >80% budget: L1+L2
    - >95% budget: L1+L2+L3
-3. Budget 管理：available = budget - system_prompt_tokens - output_reserve
-4. 量化评测接口：compression_ratio + information_retention（entity/keyword 保留率）
-5. 与 SlidingWindowCompressor 配合：先尝试语义压缩，最后兜底用滑动窗口截断
+3. Budget management: available = budget - system_prompt_tokens - output_reserve
+4. Quantitative evaluation interface: compression_ratio + information_retention (entity/keyword retention rate)
+5. Works with SlidingWindowCompressor: try semantic compression first, fall back to sliding-window truncation last
 """
 
 from __future__ import annotations
@@ -27,22 +27,22 @@ from src.utils.tracing import trace_chain
 
 logger = logging.getLogger(__name__)
 
-# 压缩级别触发阈值
+# compression level trigger thresholds
 _L1_THRESHOLD = 0.60
 _L2_THRESHOLD = 0.80
 _L3_THRESHOLD = 0.95
 
-# token 估算参数
+# token estimation parameters
 _CHARS_PER_TOKEN = 3.5
-_OUTPUT_RESERVE = 2048  # 为 LLM 输出预留的 token 数
+_OUTPUT_RESERVE = 2048  # tokens reserved for LLM output
 
 
 class ContextCompressor:
     """
-    上下文统一压缩器。
+    Unified context compressor.
 
-    对外暴露 compress() 接口，自动判断压缩级别并执行渐进式压缩。
-    同时提供量化评测接口，用于 ablation 实验。
+    Exposes a compress() interface that picks the compression level automatically and runs progressive compression.
+    Also provides a quantitative evaluation interface for ablation experiments.
     """
 
     def __init__(
@@ -53,13 +53,13 @@ class ContextCompressor:
         output_reserve: int = _OUTPUT_RESERVE,
     ) -> None:
         """
-        初始化上下文压缩器。
+        Initialize the context compressor.
 
         Args:
-            llm_policy: VLLMPolicy 实例（L3 摘要和 llm_judge 需要）
-            embedder: 向量化器
-            budget: 总上下文 token 预算
-            output_reserve: 为模型输出预留的 token 数
+            llm_policy: VLLMPolicy instance (needed by L3 summaries and llm_judge)
+            embedder: the vectorizer
+            budget: total context token budget
+            output_reserve: tokens reserved for model output
         """
         self.llm_policy = llm_policy
         self.embedder = embedder or Embedder()
@@ -67,23 +67,23 @@ class ContextCompressor:
         self.output_reserve = output_reserve
         self.available_budget = budget - output_reserve
 
-        # 子压缩器
+        # sub-compressors
         self.sliding = SlidingWindowCompressor(max_tokens=self.available_budget)
         self.extractive = ExtractiveCompressor(embedder=self.embedder)
         self.summarizer = LLMSummarizer(llm_policy=llm_policy)
 
-        # 统计累积
+        # accumulated statistics
         self._stats_history: list[dict[str, Any]] = []
 
     def calculate_tokens(self, texts: list[str]) -> int:
         """
-        估算文本列表的总 token 数。
+        Estimate the total token count of a list of texts.
 
         Args:
-            texts: 文本列表
+            texts: list of texts
 
         Returns:
-            估算 token 数
+            estimated token count
         """
         total_chars = sum(len(t) for t in texts)
         return int(total_chars / _CHARS_PER_TOKEN)
@@ -97,21 +97,21 @@ class ContextCompressor:
         system_prompt_tokens: int = 0,
     ) -> list[str]:
         """
-        对文本列表执行压缩。
+        Compress a list of texts.
 
         Args:
-            texts: 原始文本列表（每篇文档/每条消息一个元素）
-            query: 当前查询（用于 L1/L2 相关性加权）
-            level: 强制指定压缩级别（1/2/3），None 时自动判断
-            system_prompt_tokens: system prompt 占用的 token 数
+            texts: original texts (one element per document / message)
+            query: the current query (for L1/L2 relevance weighting)
+            level: force a compression level (1/2/3); None decides automatically
+            system_prompt_tokens: tokens taken by the system prompt
 
         Returns:
-            压缩后的文本列表
+            the compressed list of texts
         """
         if not texts:
             return []
 
-        # 计算实际可用 budget
+        # compute the actually available budget
         actual_budget = self.available_budget - system_prompt_tokens
         if actual_budget <= 0:
             logger.warning("Actual budget <= 0 after system prompt, forcing max compression.")
@@ -120,7 +120,7 @@ class ContextCompressor:
         current_tokens = self.calculate_tokens(texts)
         usage_ratio = current_tokens / max(actual_budget, 1)
 
-        # 确定压缩级别
+        # decide the compression level
         if level is None:
             if usage_ratio > _L3_THRESHOLD:
                 level = 3
@@ -129,7 +129,7 @@ class ContextCompressor:
             elif usage_ratio > _L1_THRESHOLD:
                 level = 1
             else:
-                # 无需压缩
+                # no compression needed
                 self._record_stats(texts, texts, 0, current_tokens)
                 return texts
 
@@ -140,26 +140,26 @@ class ContextCompressor:
 
         compressed = list(texts)
 
-        # L1: 相关性过滤
+        # L1: relevance filtering
         if level >= 1:
             compressed = self._l1_filter(compressed, query, actual_budget)
 
-        # L2: 关键句提取
+        # L2: key-sentence extraction
         if level >= 2 and compressed:
             compressed = self._l2_extract(compressed, query, actual_budget)
 
-        # L3: 层级摘要
+        # L3: hierarchical summary
         if level >= 3 and compressed:
             compressed = self._l3_summarize(compressed, query, actual_budget)
 
-        # 如果压缩后仍然超限，兜底滑动窗口截断
+        # if still over the limit after compression, fall back to sliding-window truncation
         final_tokens = self.calculate_tokens(compressed)
         if final_tokens > actual_budget:
             logger.warning(
                 f"[ContextCompressor] Still over budget after L{level}: "
                 f"{final_tokens} > {actual_budget}. Falling back to sliding window."
             )
-            # 将文本列表合并为消息格式进行截断
+            # merge the text list into message format for truncation
             messages = [{"role": "user", "content": t} for t in compressed]
             truncated_msgs = self.sliding.compress(messages)
             compressed = [m["content"] for m in truncated_msgs]
@@ -174,15 +174,15 @@ class ContextCompressor:
         budget: int,
     ) -> list[str]:
         """
-        L1 相关性过滤：embedding cosine similarity 评分，自适应阈值。
+        L1 relevance filtering: embedding cosine-similarity scoring with an adaptive threshold.
 
-        策略：
-        - 计算每段文本与 query 的相似度
-        - 初始阈值 0.25，若过滤后仍然超 budget，逐步降低到 0.15
-        - 保留相似度 >= 阈值的文本
+        Strategy:
+        - compute the similarity of each text to the query
+        - start at threshold 0.25; if still over budget after filtering, lower it step by step to 0.15
+        - keep texts with similarity >= threshold
         """
         if not query or not query.strip():
-            # 无 query 时不做过滤
+            # no filtering without a query
             return texts
 
         query_emb = self.embedder.encode(query)
@@ -190,12 +190,12 @@ class ContextCompressor:
 
         scored: list[tuple[str, float]] = []
         for text in texts:
-            text_emb = self.embedder.encode(text[:1000])  # 只取前 1000 字符加速
+            text_emb = self.embedder.encode(text[:1000])  # use only the first 1000 chars for speed
             text_vec = self._to_norm_vec(text_emb)
             sim = float(query_vec.dot(text_vec)) if text_vec is not None else 0.0
             scored.append((text, sim))
 
-        # 自适应阈值：从 0.25 开始，若不够严格则递减
+        # adaptive threshold: start at 0.25 and decrease if not strict enough
         best_result: list[str] = []
         for threshold in [0.25, 0.20, 0.15]:
             filtered = [t for t, s in scored if s >= threshold]
@@ -206,7 +206,7 @@ class ContextCompressor:
             if threshold == 0.15:
                 best_result = filtered
 
-        # 保底策略：若过滤后为空但原始有内容，至少保留相似度最高的 1 篇
+        # safety net: if filtering leaves nothing but the original had content, keep at least the single most similar one
         if not best_result and texts:
             best_text = max(scored, key=lambda x: x[1])[0]
             best_result = [best_text]
@@ -224,14 +224,14 @@ class ContextCompressor:
         budget: int,
     ) -> list[str]:
         """
-        L2 关键句提取：TextRank + query-biased，动态保留比例。
+        L2 key-sentence extraction: TextRank + query-biased, dynamic keep ratio.
 
-        策略：
-        - 根据剩余 budget 计算每篇文档的目标保留比例
-        - 预算越紧张，top_ratio 越低（最低 0.15）
+        Strategy:
+        - compute each document's target keep ratio from the remaining budget
+        - the tighter the budget, the lower the top_ratio (minimum 0.15)
         """
         current_tokens = self.calculate_tokens(texts)
-        # 目标比例：线性映射，预算用满 80% 时保留 30%，用满 100% 时保留 15%
+        # target ratio: linear mapping; keep 30% at 80% budget use, 15% at 100%
         target_ratio = max(0.15, min(0.40, 0.50 - (current_tokens / max(budget, 1)) * 0.35))
 
         compressed = []
@@ -253,15 +253,15 @@ class ContextCompressor:
         budget: int,
     ) -> list[str]:
         """
-        L3 层级摘要：逐文档摘要 → 聚合摘要。
+        L3 hierarchical summary: per-document summaries → aggregate summary.
 
-        策略：
-        - 先对每篇文档做单文档摘要（控制长度）
-        - 再将所有摘要聚合为一段综述
-        - 最终返回单元素列表（聚合结果）
+        Strategy:
+        - first summarize each document on its own (length controlled)
+        - then aggregate all summaries into one overview
+        - finally return a single-element list (the aggregated result)
         """
         current_tokens = self.calculate_tokens(texts)
-        # 单文档摘要目标长度
+        # target length of a single-document summary
         per_doc_max = max(200, budget // max(len(texts), 1))
         summaries = []
         for text in texts:
@@ -270,7 +270,7 @@ class ContextCompressor:
             )
             summaries.append(summary)
 
-        # 聚合摘要
+        # aggregate summary
         aggregate_max = max(400, budget // 2)
         aggregate = self.summarizer.summarize_documents(
             summaries, query, max_length=aggregate_max
@@ -284,7 +284,7 @@ class ContextCompressor:
 
     @staticmethod
     def _to_norm_vec(embedding: list[float]) -> Optional[Any]:
-        """将 embedding 转为归一化 numpy 向量。"""
+        """Convert an embedding into a normalized numpy vector."""
         import numpy as np
         vec = np.array(embedding, dtype=np.float32)
         norm = float(np.linalg.norm(vec))
@@ -299,7 +299,7 @@ class ContextCompressor:
         level: int,
         after_tokens: int,
     ) -> None:
-        """记录本次压缩的统计信息。"""
+        """Record the statistics of this compression."""
         orig_tokens = self.calculate_tokens(original)
         ratio = after_tokens / max(orig_tokens, 1)
         retention = self._estimate_retention(original, compressed)
@@ -318,19 +318,19 @@ class ContextCompressor:
         compressed: list[str],
     ) -> float:
         """
-        估算信息保留率。
+        Estimate the information retention rate.
 
-        简单启发式：
-        - 提取 original 中的数字实体和英文专有名词
-        - 检查有多少出现在 compressed 中
-        - 保留率 = 出现的实体数 / 总实体数
+        Simple heuristic:
+        - extract numeric entities and English proper nouns from original
+        - check how many appear in compressed
+        - retention = entities that appear / total entities
         """
         orig_text = " ".join(original)
         comp_text = " ".join(compressed)
 
-        # 数字实体（含百分比、日期）
+        # numeric entities (including percentages and dates)
         numbers = set(re.findall(r"\d+[\d,]*\.?\d*\s*%?|\d{4}-\d{2}-\d{2}", orig_text))
-        # 英文专有名词（大写单词序列）
+        # English proper nouns (sequences of capitalized words)
         names = set(re.findall(r"[A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+){0,3}", orig_text))
         entities = numbers | names
         if not entities:
@@ -341,15 +341,15 @@ class ContextCompressor:
 
     def get_stats(self) -> dict[str, Any]:
         """
-        返回累计压缩统计。
+        Return the accumulated compression statistics.
 
         Returns:
             {
-                "total_compresses": 压缩次数,
-                "avg_compression_ratio": 平均压缩比,
-                "avg_retention": 平均信息保留率,
-                "level_distribution": 各级别使用次数,
-                "history": 每次压缩的详细记录,
+                "total_compresses": number of compressions,
+                "avg_compression_ratio": average compression ratio,
+                "avg_retention": average information retention rate,
+                "level_distribution": usage count of each level,
+                "history": detailed record of each compression,
             }
         """
         if not self._stats_history:

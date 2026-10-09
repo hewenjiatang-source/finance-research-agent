@@ -1,12 +1,12 @@
-"""引用核对（citation verification）—— 确定性规则层。
+"""Citation verification — the deterministic rule layer.
 
-对报告里每条"带数字的断言"回答三个问题：
-  1. 引用编号存在吗？（dangling：编号不在证据账本里 —— 典型幻觉引用）
-  2. 被引来源里真的有这个数吗？（supported / misattributed / unsupported）
-  3. 没有引用的数字，是不是至少能在某条证据里找到？（uncited_grounded / uncited_ungrounded）
+For every numeric claim in the report it answers three questions:
+  1. Does the cited id exist? (dangling: the id is not in the evidence ledger — a typical hallucinated citation)
+  2. Does the cited source really contain the number? (supported / misattributed / unsupported)
+  3. For an uncited number, can it at least be found in some evidence? (uncited_grounded / uncited_ungrounded)
 
-匹配规则（见 _candidates）：数字与单位一起归一后做"精度感知"比较；
-证据文本声明了 "in millions/thousands" 时，才允许裸数字乘以对应倍数，因此 ×1000 的量级错误不会被误判为有据。
+Matching rule (see evidence_candidates): the number and its unit are normalized together and compared "precision-aware";
+a bare number is only multiplied by a scale when the evidence declares "in millions/thousands", so a x1000 scale error is not mistaken for grounded.
 """
 from __future__ import annotations
 
@@ -39,7 +39,7 @@ class CitationRecord:
 
 
 def evidence_candidates(text: str) -> list[tuple[float, float]]:
-    """证据文本 → [(归一值, half_ulp)]。含：带单位的提及、裸数字×1、裸数字×声明的倍数。"""
+    """Evidence text -> [(normalized value, half_ulp)]. Includes: mentions with units, bare numbers x1, bare numbers x declared scales."""
     out: list[tuple[float, float]] = []
     scales = [s for rx, s in _DECLARED if rx.search(text)]
     for m in extract_mentions(text):
@@ -71,7 +71,7 @@ def _match(m: Mention, cands: list[tuple[float, float]]) -> bool:
 
 
 def _derived_ok(m: Mention, evidence: list[dict]) -> bool:
-    """百分比等派生数：来自计算器证据的结果，或能由结构化证据（XBRL/计算）中两个数复算。"""
+    """Derived numbers such as percentages: the result of a calculator evidence, or recomputable from two numbers in structured evidence (XBRL / computation)."""
     pool: list[float] = []
     for e in evidence:
         if e["kind"] == "computation" and _match(m, evidence_candidates(e["text"])):
@@ -120,7 +120,7 @@ def check_citations(units, evidence: list[dict]) -> list[CitationRecord]:
                     else:
                         status, found = "unsupported", []
                 if missing and status == "supported":
-                    status = "supported"  # 部分引用悬空由 dangling_ids 单独统计
+                    status = "supported"  # partially dangling citations are counted separately via dangling_ids
                 recs.append(CitationRecord(m.raw, m.sentence, u.cites, status, found))
             else:
                 found = [e for e in by_id if _match(m, cands(e))]

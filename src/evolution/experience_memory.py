@@ -1,13 +1,13 @@
 """
-M6 自进化引擎 — 经验记忆模块
+M6 self-evolution engine — experience memory module
 
-ExperienceMemory 存储成功/失败 trajectory 的关键模式，支持基于 sentence-transformer
-嵌入的相似度检索，以及按综合评分淘汰旧经验。
+ExperienceMemory stores key patterns of successful/failed trajectories, supports sentence-transformer
+embedding-based similarity retrieval, and evicts old experiences by composite score.
 
-设计决策：
-1. SQLite 持久化：轻量、无需额外服务，适合研究实验环境。
-2. embedding 缓存：首次编码后存入数据库，避免重复计算。
-3. 淘汰策略：综合评分 = 0.4×质量 + 0.3×新鲜度 + 0.3×实用性，定期清理低分经验。
+Design decisions:
+1. SQLite persistence: lightweight, no extra service, suited to research experiments.
+2. Embedding cache: stored in the database after first encoding to avoid recomputation.
+3. Eviction policy: composite score = 0.4×quality + 0.3×freshness + 0.3×usefulness; low-scoring experiences are cleaned periodically.
 """
 from __future__ import annotations
 
@@ -24,11 +24,11 @@ __all__ = ["ExperienceMemory"]
 
 
 class ExperienceMemory:
-    """经验记忆：存储、检索和淘汰研究轨迹的关键模式。
+    """Experience memory: stores, retrieves and evicts key patterns of research trajectories.
 
     Attributes:
-        db_path: SQLite 数据库文件路径。
-        embedding_dim: embedding 向量维度（默认 384，对应 all-MiniLM-L6-v2）。
+        db_path: SQLite database file path.
+        embedding_dim: embedding vector dimension (default 384, matching all-MiniLM-L6-v2).
     """
 
     def __init__(self, db_path: str = "experience.db", embedding_dim: int = 384):
@@ -39,11 +39,11 @@ class ExperienceMemory:
         self._init_db()
 
     # ------------------------------------------------------------------
-    # 数据库初始化
+    # Database initialization
     # ------------------------------------------------------------------
 
     def _init_db(self) -> None:
-        """创建 SQLite 表结构（若不存在）。"""
+        """Create the SQLite table schema (if absent)."""
         conn = self._get_conn()
         conn.execute(
             """
@@ -72,11 +72,11 @@ class ExperienceMemory:
         return self._conn
 
     # ------------------------------------------------------------------
-    # Embedder 懒加载
+    # Lazy-loaded embedder
     # ------------------------------------------------------------------
 
     def _get_embedder(self) -> Any | None:
-        """懒加载 embedder，优先使用项目已有的 Embedder。"""
+        """Lazily load the embedder, preferring the project's existing Embedder."""
         if self._embedder is not None:
             return self._embedder
         try:
@@ -87,7 +87,7 @@ class ExperienceMemory:
         return self._embedder
 
     def _encode(self, text: str) -> list[float]:
-        """将文本编码为 embedding 向量，失败时返回零向量。"""
+        """Encode text into an embedding vector; return a zero vector on failure."""
         embedder = self._get_embedder()
         if embedder is not None:
             try:
@@ -98,7 +98,7 @@ class ExperienceMemory:
 
     @staticmethod
     def _cosine_similarity(a: list[float], b: list[float]) -> float:
-        """计算两向量的余弦相似度。"""
+        """Compute the cosine similarity of two vectors."""
         if not a or not b or len(a) != len(b):
             return 0.0
         dot = sum(x * y for x, y in zip(a, b))
@@ -109,7 +109,7 @@ class ExperienceMemory:
         return dot / (norm_a * norm_b)
 
     # ------------------------------------------------------------------
-    # 增删改查
+    # CRUD
     # ------------------------------------------------------------------
 
     def add(
@@ -120,17 +120,17 @@ class ExperienceMemory:
         strategy_summary: str,
         current_round: int = 0,
     ) -> int:
-        """添加一条经验到记忆库。
+        """Add an experience to the memory store.
 
         Args:
-            trajectory: 交互轨迹列表。
-            success: 是否成功完成任务。
-            score: 最终综合评分。
-            strategy_summary: 策略摘要（用于 embedding 和人工阅读）。
-            current_round: 当前进化轮次，用于新鲜度计算。
+            trajectory: interaction trajectory list.
+            success: whether the task was completed successfully.
+            score: final composite score.
+            strategy_summary: strategy summary (for embedding and human reading).
+            current_round: current evolution round, used for freshness computation.
 
         Returns:
-            新插入记录的 id。
+            The id of the newly inserted record.
         """
         embedding = self._encode(strategy_summary)
         embedding_str = json.dumps(embedding)
@@ -162,15 +162,15 @@ class ExperienceMemory:
         top_k: int = 3,
         current_round: int = 0,
     ) -> list[dict[str, Any]]:
-        """基于语义相似度检索相关经验。
+        """Retrieve relevant experiences by semantic similarity.
 
         Args:
-            query: 查询文本（如当前研究问题或策略摘要）。
-            top_k: 返回最相关的 k 条经验。
-            current_round: 当前进化轮次，用于更新访问统计。
+            query: query text (e.g. the current research question or strategy summary).
+            top_k: return the k most relevant experiences.
+            current_round: current evolution round, used to update access statistics.
 
         Returns:
-            经验字典列表，按相似度降序排列。
+            List of experience dicts sorted by similarity, descending.
         """
         query_emb = self._encode(query)
         conn = self._get_conn()
@@ -205,7 +205,7 @@ class ExperienceMemory:
                     "created_round": row["created_round"],
                 }
             )
-            # 更新访问统计
+            # Update access statistics
             conn.execute(
                 "UPDATE experiences SET access_count = access_count + 1, last_access_round = ? WHERE id = ?",
                 (current_round, row["id"]),
@@ -219,23 +219,23 @@ class ExperienceMemory:
         current_round: int = 0,
         retain_min: int = 100,
     ) -> int:
-        """淘汰旧经验。
+        """Evict old experiences.
 
-        淘汰规则：
-        1. 超过 max_age_rounds 未访问的经验（last_access_round 差距大）。
-        2. 综合评分低的经验：composite = 0.4×质量 + 0.3×新鲜度 + 0.3×实用性。
-           - 质量: score / 10
-           - 新鲜度: 1 - min(age, max_age) / max_age
-           - 实用性: min(access_count / 5, 1.0)
-        3. 保留至少 retain_min 条。
+        Eviction rules:
+        1. Experiences not accessed for more than max_age_rounds (large last_access_round gap).
+        2. Experiences with a low composite score: composite = 0.4×quality + 0.3×freshness + 0.3×usefulness.
+           - quality: score / 10
+           - freshness: 1 - min(age, max_age) / max_age
+           - usefulness: min(access_count / 5, 1.0)
+        3. Keep at least retain_min entries.
 
         Args:
-            max_age_rounds: 最大允许的年龄（以轮次计）。
-            current_round: 当前进化轮次。
-            retain_min: 最少保留条数。
+            max_age_rounds: maximum allowed age (in rounds).
+            current_round: current evolution round.
+            retain_min: minimum number of entries to keep.
 
         Returns:
-            被删除的记录数。
+            Number of deleted records.
         """
         conn = self._get_conn()
         rows = conn.execute(
@@ -245,7 +245,7 @@ class ExperienceMemory:
         if len(rows) <= retain_min:
             return 0
 
-        # 计算每条记录的综合评分
+        # Compute the composite score of each record
         scored: list[tuple[float, int]] = []  # (composite_score, id)
         for row in rows:
             age = current_round - row["last_access_round"]
@@ -255,7 +255,7 @@ class ExperienceMemory:
             composite = 0.4 * quality + 0.3 * freshness + 0.3 * utility
             scored.append((composite, row["id"]))
 
-        # 按综合评分升序排序，低分先淘汰
+        # Sort by composite score ascending; low scores are evicted first
         scored.sort(key=lambda x: x[0])
         to_evict_count = max(0, len(scored) - retain_min)
         to_evict_ids = [sid for _, sid in scored[:to_evict_count]]
@@ -270,7 +270,7 @@ class ExperienceMemory:
         return len(to_evict_ids)
 
     def get_stats(self) -> dict[str, Any]:
-        """返回记忆库统计信息。"""
+        """Return memory-store statistics."""
         conn = self._get_conn()
         row = conn.execute(
             "SELECT COUNT(*) as cnt, AVG(score) as avg_score, "

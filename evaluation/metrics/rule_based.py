@@ -3,9 +3,9 @@
 """
 evaluation/metrics/rule_based.py
 ================================================================================
-基于规则/统计的轻量级评测指标。
+Lightweight evaluation metrics based on rules/statistics.
 
-适用于批量运行、CI/CD、消融实验等需要快速、免费、可复现评分的场景。
+Suited to batch runs, CI/CD, ablation experiments, and other scenarios needing fast, free, reproducible scoring.
 ================================================================================
 """
 
@@ -17,18 +17,18 @@ from typing import Any
 
 
 class RuleBasedMetrics:
-    """研究报告质量评测指标集合（规则版）。"""
+    """Collection of research-report quality evaluation metrics (rule-based edition)."""
 
     # -----------------------------------------------------------------------
-    # 1. 事实准确性 (Factual Accuracy) — 字符串匹配版（快速但粗糙）
+    # 1. Factual Accuracy -- string-matching version (fast but crude)
     # -----------------------------------------------------------------------
     @staticmethod
     def fact_accuracy(report: str, ground_truth: dict[str, Any] | None = None) -> float:
         """
-        计算报告中的关键事实与 ground_truth 的匹配程度。
+        Compute how well the key facts in the report match the ground_truth.
 
-        当前实现采用简单启发式：统计报告中包含的 ground_truth 关键短语比例。
-        若无 ground_truth，则返回 0.0（需外部 Judge LLM 补充评估）。
+        The current implementation uses a simple heuristic: the proportion of ground_truth key phrases contained in the report.
+        Returns 0.0 if there is no ground_truth (an external Judge LLM must supplement the evaluation).
         """
         if not ground_truth:
             return 0.0
@@ -42,7 +42,7 @@ class RuleBasedMetrics:
         return matched / len(ground_truth) if ground_truth else 0.0
 
     # -----------------------------------------------------------------------
-    # 1b. 语义事实准确性 (Semantic Factual Accuracy) — 面试强化版
+    # 1b. Semantic Factual Accuracy -- enhanced version
     # -----------------------------------------------------------------------
     @staticmethod
     def semantic_fact_accuracy(
@@ -51,23 +51,23 @@ class RuleBasedMetrics:
         threshold: float = 0.65,
     ) -> float:
         """
-        基于 embedding 语义相似度的事实准确性验证。
+        Factual accuracy verification based on embedding semantic similarity.
 
-        改进点（相比字符串匹配）：
-        1. 把 ground_truth 的 key + description 编码为语义向量
-        2. 把报告拆分成句子 chunk，分别编码
-        3. 计算每个 ground_truth 条目与报告中最相似 chunk 的 cosine similarity
-        4. 超过阈值（默认 0.65）才判定为"事实被覆盖"
+        Improvements (compared with string matching):
+        1. Encode each ground_truth key + description as a semantic vector
+        2. Split the report into sentence chunks and encode each
+        3. Compute the cosine similarity between each ground_truth entry and the most similar chunk in the report
+        4. A fact is judged "covered" only if the similarity exceeds the threshold (default 0.65)
 
-        这样能避免"GPT-4o 是 Google 发布的"这种关键词命中但语义错误的误报。
+        This avoids false positives such as "GPT-4o was released by Google", where keywords match but the semantics are wrong.
 
         Args:
-            report: 研究报告全文
-            ground_truth: 期望事实字典 {key: description}
-            threshold: 语义相似度阈值，0-1
+            report: Full text of the research report
+            ground_truth: Dict of expected facts {key: description}
+            threshold: Semantic similarity threshold, 0-1
 
         Returns:
-            0.0 ~ 1.0 的覆盖率
+            Coverage rate from 0.0 to 1.0
         """
         if not ground_truth:
             return 0.0
@@ -77,25 +77,25 @@ class RuleBasedMetrics:
 
         embedder = Embedder()
 
-        # 把报告拆成句子 chunk（避免长报告淹没短事实）
+        # Split the report into sentence chunks (so a long report does not drown out short facts)
         chunks = [s.strip() for s in re.split(r"[。！？\n]", report) if len(s.strip()) > 10]
         if not chunks:
             return 0.0
 
-        # 批量编码 chunk（Sentencetransformer 支持批量）
+        # Batch-encode chunks (SentenceTransformer supports batching)
         try:
             chunk_embs = np.array(embedder._load_model().encode(chunks, normalize_embeddings=True))
         except Exception:
-            # fallback：逐条编码
+            # fallback: encode one by one
             chunk_embs = np.array([embedder.encode(c) for c in chunks])
 
         matched = 0
         for key_fact, expected_desc in ground_truth.items():
-            # 组合 key + description 作为语义查询
+            # Combine key + description as the semantic query
             fact_text = f"{key_fact}：{expected_desc}"
             fact_emb = np.array(embedder.encode(fact_text))
 
-            # 计算与所有 chunk 的 cosine similarity
+            # Compute cosine similarity against all chunks
             sims = chunk_embs.dot(fact_emb)
             max_sim = float(np.max(sims)) if sims.size > 0 else 0.0
 
@@ -105,20 +105,20 @@ class RuleBasedMetrics:
         return matched / len(ground_truth)
 
     # -----------------------------------------------------------------------
-    # 2. 幻觉率 (Hallucination Rate)
+    # 2. Hallucination Rate
     # -----------------------------------------------------------------------
     @staticmethod
     def hallucination_rate(report: str) -> float:
         """
-        估算报告中可能存在的幻觉内容比例。
+        Estimate the proportion of potentially hallucinated content in the report.
 
-        当前启发式策略：
-        - 检测无引用的数值声明（数字+单位）。
-        - 检测缺乏来源的绝对化表述（"绝对"、"毫无疑问"等）。
-        - 检测模型常见的幻觉模式（"据我所知"、"研究表明"但无具体引用）。
+        Current heuristic strategy:
+        - Detect uncited numeric claims (number + unit).
+        - Detect absolute statements lacking sources ("absolutely", "without a doubt", etc.).
+        - Detect common model hallucination patterns ("as far as I know", "research shows" without a specific citation).
 
         Returns:
-            0.0 ~ 1.0，越高表示幻觉风险越大。
+            0.0 to 1.0; higher means greater hallucination risk.
         """
         if not report:
             return 1.0
@@ -129,14 +129,14 @@ class RuleBasedMetrics:
             return 1.0
 
         hallucination_indicators = [
-            r"\d+[\d,]*\.?\d*\s*(%|倍|个|人|元|美元|亿|万)",  # 带单位的孤立数字
+            r"\d+[\d,]*\.?\d*\s*(%|倍|个|人|元|美元|亿|万)",  # isolated number with a unit
             r"毫无疑问|绝对|必然|一定|众所周知",
-            r"据我所知|据了解|研究显示[^【\[（(]",  # 模糊引用开头
+            r"据我所知|据了解|研究显示[^【\[（(]",  # vague citation opener
         ]
 
         suspicious_count = 0
         for sentence in sentences:
-            # 如果句子中无引用标记，检查是否包含幻觉特征
+            # If the sentence has no citation marker, check whether it contains hallucination features
             if not re.search(r"[\[【（(].*?[\]）)]", sentence):
                 for pattern in hallucination_indicators:
                     if re.search(pattern, sentence):
@@ -146,15 +146,15 @@ class RuleBasedMetrics:
         return min(1.0, suspicious_count / max(len(sentences), 1))
 
     # -----------------------------------------------------------------------
-    # 3. 引用覆盖率 (Citation Coverage)
+    # 3. Citation Coverage
     # -----------------------------------------------------------------------
     @staticmethod
     def citation_coverage(report: str) -> float:
         """
-        计算报告中包含引用来源的段落比例。
+        Compute the proportion of paragraphs in the report that contain a cited source.
 
-        引用标记形式：
-        - [N] 或 [来源: ...]
+        Citation marker forms:
+        - [N] or [来源: ...] ("来源" = "source")
         - 【来源: ...】
         - (来源: ...)
         """
@@ -184,21 +184,21 @@ class RuleBasedMetrics:
         return cited_paragraphs / len(paragraphs)
 
     # -----------------------------------------------------------------------
-    # 4. 逻辑一致性 (Logical Consistency)
+    # 4. Logical Consistency
     # -----------------------------------------------------------------------
     @staticmethod
     def logical_consistency(report: str) -> float:
         """
-        估算报告的逻辑一致性分数。
+        Estimate the report's logical consistency score.
 
-        当前启发式策略：
-        - 检测明显的自相矛盾关键词对（"是" vs "不是" 在同一上下文）。
-        - 检测逻辑连接词使用是否合理（"因此"、"然而"前是否有前提）。
+        Current heuristic strategy:
+        - Detect obvious self-contradicting keyword pairs ("is" vs "is not" in the same context).
+        - Check whether logical connectives are used reasonably (is there a premise before "therefore" / "however").
         """
         if not report:
             return 0.0
 
-        # 简单检测矛盾对：句子中同时出现 A 和 非A（同一句话）
+        # Simple contradiction-pair detection: A and not-A appear in the same sentence
         contradiction_pairs = [
             ("是", "不是"),
             ("可以", "不可以"),
@@ -216,11 +216,11 @@ class RuleBasedMetrics:
         for sentence in sentences:
             for a, b in contradiction_pairs:
                 if a in sentence and b in sentence:
-                    # 更严格的检查：确保它们之间没有否定词分隔
+                    # Stricter check: ensure no negation word separates them
                     contradiction_count += 1
                     break
 
-        # 同时奖励使用逻辑连接词
+        # Also reward the use of logical connectives
         connectives = ["因此", "所以", "然而", "但是", "首先", "其次", "综上所述"]
         connective_count = sum(1 for c in connectives if c in report)
         connective_bonus = min(0.1, connective_count * 0.01)
@@ -229,12 +229,12 @@ class RuleBasedMetrics:
         return min(1.0, max(0.0, base_score + connective_bonus))
 
     # -----------------------------------------------------------------------
-    # 5. 完备性 (Comprehensiveness)
+    # 5. Comprehensiveness
     # -----------------------------------------------------------------------
     @staticmethod
     def comprehensiveness(report: str, expected_topics: list[str] | None = None) -> float:
         """
-        计算报告对期望主题的覆盖程度。
+        Compute how well the report covers the expected topics.
         """
         if not expected_topics:
             return 0.0
@@ -248,7 +248,7 @@ class RuleBasedMetrics:
         return covered / len(expected_topics) if expected_topics else 0.0
 
     # -----------------------------------------------------------------------
-    # 6. 综合得分 (Composite Score)
+    # 6. Composite Score
     # -----------------------------------------------------------------------
     @staticmethod
     def composite_score(
@@ -256,13 +256,13 @@ class RuleBasedMetrics:
         weights: dict[str, float] | None = None,
     ) -> float:
         """
-        基于多维度指标和权重计算加权综合得分。
+        Compute a weighted composite score from multi-dimensional metrics and weights.
 
-        默认权重与 Red Agent 的五维度对齐：
+        Default weights are aligned with the Red Agent's five dimensions:
         - factual_accuracy: 0.25
         - logical_consistency: 0.20
         - citation_coverage: 0.20
-        - bias (1 - hallucination_rate 作为代理): 0.20
+        - bias (1 - hallucination_rate as a proxy): 0.20
         - comprehensiveness: 0.15
         """
         default_weights = {
@@ -285,7 +285,7 @@ class RuleBasedMetrics:
         return total_score / total_weight if total_weight > 0 else 0.0
 
     # -----------------------------------------------------------------------
-    # 7. 效率指标 (Efficiency)
+    # 7. Efficiency
     # -----------------------------------------------------------------------
     @staticmethod
     def efficiency_score(
@@ -295,9 +295,9 @@ class RuleBasedMetrics:
         max_bonus: float = 0.5,
     ) -> float:
         """
-        基于 sigmoid 的效率奖励分数。
+        Sigmoid-based efficiency reward score.
 
-        公式：max_bonus * sigmoid(slope * (target_turns - num_turns))
+        Formula: max_bonus * sigmoid(slope * (target_turns - num_turns))
         """
         sigmoid = 1.0 / (1.0 + math.exp(-slope * (target_turns - num_turns)))
         return max_bonus * sigmoid

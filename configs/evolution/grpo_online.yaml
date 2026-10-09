@@ -1,102 +1,102 @@
 # =============================================================================
-# 在线 GRPO (Group Relative Policy Optimization) 进化训练配置
+# Online GRPO (Group Relative Policy Optimization) evolution training configuration
 # =============================================================================
-# 本配置复用并适配自项目一 (week3_vanilla_grpo.yaml) 的结构，
-# 用于 DeepResearch Agent 的在线自进化训练（M6: Self-Evolution Engine）。
+# This configuration reuses and adapts the structure of project one (week3_vanilla_grpo.yaml),
+# for online self-evolution training of the DeepResearch Agent (M6: Self-Evolution Engine).
 # =============================================================================
 
 model:
-  # 基座模型路径，支持 HuggingFace model_id 或本地路径
+  # Base model path; supports a HuggingFace model_id or a local path
   path: "Qwen/Qwen2.5-7B-Instruct"
-  # 模型加载精度
+  # Model loading precision
   torch_dtype: "bfloat16"
-  # 是否启用 flash_attention_2 加速
+  # Whether to enable flash_attention_2 acceleration
   attn_implementation: "flash_attention_2"
 
 training:
-  # 训练算法：grpo / ppo / dpo 等
+  # Training algorithm: grpo / ppo / dpo, etc.
   algorithm: "grpo"
-  # 进化总迭代轮数
+  # Total evolution iterations
   num_iterations: 20
-  # 每轮采样的 query（研究问题）数量
+  # Number of queries (research questions) sampled per round
   batch_size: 32
-  # 每个 query 对应的采样组大小（GRPO 组内采样数）
+  # Sampling group size per query (number of samples within a GRPO group)
   group_size: 8
-  # 单条轨迹（研究过程）允许的最大交互轮数
+  # Maximum interaction turns allowed per trajectory (research process)
   max_turns: 15
-  # 梯度累积步数
+  # Gradient accumulation steps
   gradient_accumulation_steps: 1
-  # 是否启用混合精度训练
+  # Whether to enable mixed-precision training
   mixed_precision: true
-  # 随机种子（便于实验复现）
+  # Random seed (for reproducible experiments)
   seed: 42
 
 optimizer:
-  # 优化器类型
+  # Optimizer type
   type: "adamw"
-  # 学习率
+  # Learning rate
   lr: 5.0e-6
-  # 权重衰减
+  # Weight decay
   weight_decay: 0.01
-  # Adam beta 参数
+  # Adam beta parameters
   betas: [0.9, 0.999]
   # epsilon
   eps: 1.0e-8
-  # 学习率预热步数比例
+  # Learning rate warmup step ratio
   warmup_ratio: 0.05
-  # 学习率衰减策略
+  # Learning rate decay schedule
   lr_scheduler_type: "cosine"
 
 grpo:
-  # KL 散度惩罚系数，防止策略偏离参考模型太远
+  # KL divergence penalty coefficient, to keep the policy from drifting too far from the reference model
   kl_coef: 0.01
-  # PPO 风格策略裁剪阈值
+  # PPO-style policy clipping threshold
   clip_eps: 0.2
-  # 优势函数计算方式：grpo / gae
+  # Advantage estimation method: grpo / gae
   advantage_estimator: "grpo"
-  # 是否使用基线（组内均值）进行归一化
+  # Whether to normalize using a baseline (the group mean)
   use_baseline: true
-  # 奖励缩放因子
+  # Reward scaling factor
   reward_scale: 1.0
 
 lora:
-  # 是否启用 LoRA 高效微调
+  # Whether to enable LoRA efficient fine-tuning
   enabled: true
-  # LoRA 低秩维度 r
+  # LoRA low-rank dimension r
   rank: 16
-  # LoRA 缩放系数 alpha
+  # LoRA scaling factor alpha
   alpha: 32
   # LoRA dropout
   dropout: 0.05
-  # 目标模块（ attention 层的 q_proj / v_proj 等）
+  # Target modules (q_proj / v_proj, etc. of the attention layers)
   target_modules:
     - "q_proj"
     - "v_proj"
     - "k_proj"
     - "o_proj"
-  # 是否微调 embedding 层和 lm_head
+  # Whether to fine-tune the embedding layer and lm_head
   modules_to_save: []
 
 reference_model:
-  # 参考模型是否固定（不更新权重），用于计算 KL 散度
+  # Whether the reference model is frozen (weights not updated), used to compute the KL divergence
   freeze: true
-  # 参考模型路径，默认与训练模型相同（加载后冻结）
+  # Reference model path; defaults to the same as the training model (frozen after loading)
   path: null
 
 logging:
-  # 日志记录间隔（步数）
+  # Logging interval (steps)
   log_interval: 10
-  # 评估间隔（迭代轮数）
+  # Evaluation interval (iterations)
   eval_interval: 5
-  # 检查点保存间隔（迭代轮数）
+  # Checkpoint save interval (iterations)
   save_interval: 5
-  # 输出目录
+  # Output directory
   output_dir: "checkpoints/evolution"
 
 hardware:
-  # 训练用 GPU 数量
+  # Number of GPUs used for training
   num_gpus: 4
-  # 是否启用 DeepSpeed / FSDP
+  # Whether to enable DeepSpeed / FSDP
   distributed_backend: "deepspeed"
-  # DeepSpeed 配置文件路径
+  # DeepSpeed config file path
   deepspeed_config: "configs/deepspeed/ds_config_zero2.json"

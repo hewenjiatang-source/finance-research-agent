@@ -1,42 +1,42 @@
 # =============================================================================
-# DeepResearchAgent 全局默认配置文件
+# DeepResearchAgent global default configuration file
 # =============================================================================
-# 本文件定义了系统的全局参数、模型接口、各模块开关及超参数。
-# 子模块可以通过加载此文件并覆盖特定键来实现自定义配置。
+# This file defines the system's global parameters, model interfaces, module switches, and hyperparameters.
+# Submodules can customize configuration by loading this file and overriding specific keys.
 # =============================================================================
 
 system:
-  # 系统名称与版本号
+  # System name and version
   name: "DeepResearchAgent"
   version: "0.1.0"
-  # 日志级别: DEBUG / INFO / WARNING / ERROR
+  # Log level: DEBUG / INFO / WARNING / ERROR
   log_level: "INFO"
-  # 工作目录，用于存放临时文件与输出报告
+  # Working directory for temporary files and output reports
   work_dir: "./outputs"
 
 model:
   # ---------------------------------------------------------------------------
-  # 多后端 LLM 配置
+  # Multi-backend LLM configuration
   # ---------------------------------------------------------------------------
-  # 后端选择策略:
-  #   - "claude"    : 使用 Anthropic Claude API（需配置 .env 中的 ANTHROPIC_API_KEY）【默认】
-  #   - "deepseek"  : 使用 DeepSeek API（需配置 .env 中的 DEEPSEEK_API_KEY）
-  #   - "vllm"      : 使用本地 vLLM 服务（默认 http://localhost:8000/v1）
-  #   - "openai"    : 使用 OpenAI API（需配置 .env 中的 OPENAI_API_KEY）
-  #   - "auto"      : 自动检测，优先使用已配置 API Key 的远程后端
+  # Backend selection strategy:
+  #   - "claude"    : Use the Anthropic Claude API (requires ANTHROPIC_API_KEY in .env) [default]
+  #   - "deepseek"  : Use the DeepSeek API (requires DEEPSEEK_API_KEY in .env)
+  #   - "vllm"      : Use a local vLLM service (default http://localhost:8000/v1)
+  #   - "openai"    : Use the OpenAI API (requires OPENAI_API_KEY in .env)
+  #   - "auto"      : Auto-detect; prefer remote backends that have an API key configured
   #
-  # 所有敏感信息（API Key、URL）均从 .env / .env.local 读取，
-  # 修改此 YAML 即可切换后端，无需改动源码。
+  # All sensitive information (API keys, URLs) is read from .env / .env.local;
+  # edit this YAML to switch backends without changing source code.
   # ---------------------------------------------------------------------------
-  backend: "claude"            # 默认后端名称
+  backend: "claude"            # Default backend name
 
-  # 以下为向后兼容的显式配置（优先级低于 .env）。
-  # 推荐做法：在 .env 中配置，此处留空或注释掉。
+  # The following are explicit settings kept for backward compatibility (lower priority than .env).
+  # Recommended: configure in .env and leave these empty or commented out.
   # base_model: "Qwen/Qwen2.5-7B-Instruct"
   # base_url: "http://localhost:8000/v1"
   # api_key: "EMPTY"
 
-  # 通用采样参数（可被 .env 中对应后端的参数覆盖）
+  # General sampling parameters (can be overridden by the corresponding backend parameters in .env)
   temperature: 0.7
   top_p: 1.0
   max_tokens: 2048
@@ -44,27 +44,27 @@ model:
   retry_delay: 2.0
 
   # ---------------------------------------------------------------------------
-  # 【唯一入口】模块级采样参数管理
+  # [Single entry point] Module-level sampling parameter management
   # ---------------------------------------------------------------------------
-  # 设计原则：
-  #   - 生成结构化输出（JSON / DAG）→ temperature 低（0.1-0.3）
-  #   - 评分 / 攻击 / 修复 → temperature 极低（0.1），确保一致性
-  #   - 研究 / 合成 → temperature 中等（0.5-0.7），保留一定创造性
-  #   - 摘要 / 压缩 → temperature 低（0.1），不需要创造性
+  # Design principles:
+  #   - Structured output (JSON / DAG) -> low temperature (0.1-0.3)
+  #   - Scoring / attack / repair -> very low temperature (0.1) for consistency
+  #   - Research / synthesis -> moderate temperature (0.5-0.7) to retain some creativity
+  #   - Summarization / compression -> low temperature (0.1); no creativity needed
   #
-  # ⚠️ 重要：所有模块的采样参数（temperature / max_tokens / top_p）
-  #     仅此一处定义，Agent YAML 中不再重复。
-  #     避免 configs/agents/*.yaml 与此处不一致导致的配置漂移。
+  # ⚠️ Important: sampling parameters (temperature / max_tokens / top_p) for all modules
+  #     are defined only here and are not repeated in the Agent YAMLs.
+  #     This avoids configuration drift from inconsistencies between configs/agents/*.yaml and this file.
   # ---------------------------------------------------------------------------
   backend_sampling:
-    # Claude 后端的全局默认采样参数
-    # 注意：不配置 top_p —— Claude 部分模型不允许 temperature 与 top_p 同时指定，
-    #       ClaudePolicy 默认也不会发送 top_p。
+    # Global default sampling parameters for the Claude backend
+    # Note: top_p is not configured -- some Claude models do not allow temperature and top_p to be specified together,
+    #       and ClaudePolicy does not send top_p by default either.
     claude:
       temperature: 0.3
       max_tokens: 4096
 
-    # 其余后端（保留，便于对照实验；mapping 里改回即可使用）
+    # Other backends (kept for comparison experiments; switch back in the mapping to use them)
     deepseek:
       temperature: 0.7
       max_tokens: 4096
@@ -75,164 +75,164 @@ model:
       max_tokens: 4096
       top_p: 1.0
 
-    # 模块级覆盖（优先级高于后端全局默认）
-    # 格式: 模块名 -> {temperature, max_tokens, top_p}
+    # Module-level overrides (higher priority than the backend global defaults)
+    # Format: module name -> {temperature, max_tokens, top_p}
     modules:
-      # model_name 为各模块指定 Claude 模型；不写则用 .env 的 CLAUDE_MODEL（默认 claude-sonnet-5-5）
+      # model_name specifies the Claude model for each module; if omitted, CLAUDE_MODEL from .env is used (default claude-sonnet-5-5)
       planner:
         model_name: "claude-sonnet-5-5"
-        temperature: 0.3       # 生成 JSON DAG 需要确定性
+        temperature: 0.3       # Generating a JSON DAG requires determinism
         max_tokens: 4096
       solver:
         model_name: "claude-sonnet-5-5"
-        temperature: 0.5       # 研究需要一定灵活性，但数字类任务不宜发散
+        temperature: 0.5       # Research needs some flexibility, but numeric tasks should not diverge
         max_tokens: 4096
       summarizer:
         model_name: "claude-sonnet-5-5"
-        temperature: 0.3       # 合成报告：流畅但不发散
-        max_tokens: 16384      # 报告可能很长，给足 token 预算（>16384 时自动改用流式）
+        temperature: 0.3       # Report synthesis: fluent but not divergent
+        max_tokens: 16384      # Reports can be long, so give a generous token budget (switches to streaming automatically above 16384)
       red_agent:
         model_name: "claude-sonnet-5-5"
-        temperature: 0.1       # 攻击必须严谨，几乎不需要随机性
+        temperature: 0.1       # Attacks must be rigorous and need almost no randomness
         max_tokens: 4096
       blue_agent:
         model_name: "claude-sonnet-5-5"
-        temperature: 0.2       # 修复需要确定性
+        temperature: 0.2       # Repair requires determinism
         max_tokens: 4096
       judge:
-        model_name: "claude-sonnet-5-5"   # 追求更稳的评分可改为 claude-opus-5-5
-        temperature: 0.0       # 评分标准必须一致，避免漂移
+        model_name: "claude-sonnet-5-5"   # switch to claude-opus-5-5 for more stable scoring
+        temperature: 0.0       # Scoring criteria must be consistent to avoid drift
         max_tokens: 2048
       compressor:
-        model_name: "claude-haiku-5-5"    # 摘要是结构化任务，用小模型省成本
+        model_name: "claude-haiku-5-5"    # Summarization is a structured task; use a small model to save cost
         temperature: 0.1
         max_tokens: 2048
 
   # ---------------------------------------------------------------------------
-  # 后端分工映射（哪个模块用哪个后端）
+  # Backend assignment mapping (which module uses which backend)
   # ---------------------------------------------------------------------------
   backend_mapping:
-    # 若留空，所有模块均使用上面的 default backend
-    solver: "claude"          # 主研究 Agent
-    planner: "claude"         # 规划器
-    summarizer: "claude"      # 合成器
-    judge: "claude"           # 评分器
-    red_agent: "claude"       # 对抗攻击
-    blue_agent: "claude"      # 对抗修复
-    compressor: "claude"      # 上下文压缩（上面已指定 haiku）
+    # If left empty, all modules use the default backend above
+    solver: "claude"          # Main research Agent
+    planner: "claude"         # Planner
+    summarizer: "claude"      # Synthesizer
+    judge: "claude"           # Scorer
+    red_agent: "claude"       # Adversarial attack
+    blue_agent: "claude"      # Adversarial repair
+    compressor: "claude"      # Context compression (haiku specified above)
 
 orchestrator:
-  # M1: Multi-Agent Orchestrator 配置
-  # 同时运行的最大子 Agent 数量
+  # M1: Multi-Agent Orchestrator configuration
+  # Maximum number of sub-agents running concurrently
   max_concurrent: 5
-  # 全局超时时间（秒），超过则强制终止整个研究流程
+  # Global timeout (seconds); the whole research flow is force-terminated once exceeded
   global_timeout_seconds: 600
-  # 最大重规划（replan）轮数，防止无限循环
+  # Maximum number of replan rounds, to prevent infinite loops
   max_replan_rounds: 3
-  # 单次规划最多拆分的子问题数量
+  # Maximum number of sub-questions a single plan may be split into
   max_sub_questions: 10
-  # 子 Agent 执行失败后的最大重试次数
+  # Maximum retries after a sub-agent execution failure
   max_subagent_retries: 2
 
 planner:
-  # M2: Adaptive Planner 配置
-  # 每个子 Agent 最多允许的搜索/执行轮数
+  # M2: Adaptive Planner configuration
+  # Maximum search/execution rounds allowed per sub-agent
   max_search_rounds_per_subagent: 5
-  # 是否启用动态计划调整（replan）
+  # Whether to enable dynamic plan adjustment (replan)
   enable_replan: true
-  # 计划执行完成后是否自动进行完整性检查
+  # Whether to automatically run a completeness check after plan execution
   enable_completeness_check: true
 
 compressor:
-  # M3: Context Compressor 配置
-  # 压缩前允许的最大上下文长度（token 数）
-  max_context_length: 120000   # Claude 上下文 1M；财报章节较长，放宽原 16K 预算
-  # 为输出保留的 token 预算（避免压缩后无法生成回答）
+  # M3: Context Compressor configuration
+  # Maximum context length allowed before compression (in tokens)
+  max_context_length: 120000   # Claude context is 1M; financial-report sections are long, so the original 16K budget is relaxed
+  # Token budget reserved for output (so an answer can still be generated after compression)
   output_reserve_tokens: 2048
-  # L1 粗过滤阈值：低于此相似度的文档直接丢弃
+  # L1 coarse-filter threshold: documents below this similarity are discarded
   l1_threshold: 0.6
-  # L2 细过滤阈值：中等相似度，进入摘要候选池
+  # L2 fine-filter threshold: medium similarity, enters the summary candidate pool
   l2_threshold: 0.8
-  # L3 保留阈值：高于此相似度的原始文本完整保留
+  # L3 retention threshold: original text above this similarity is kept in full
   l3_threshold: 0.95
-  # 用于语义相似度计算的 embedding 模型
+  # Embedding model used for semantic similarity
   embedding_model: "all-MiniLM-L6-v2"
-  # 是否启用多级压缩（L1-L3）
+  # Whether to enable multi-level compression (L1-L3)
   enable_multilevel: true
 
 memory:
-  # M4: Shared Memory Store 配置
-  # SQLite 数据库文件路径
+  # M4: Shared Memory Store configuration
+  # SQLite database file path
   db_path: "data/memory.db"
-  # 内存表中最大条目数，超过则触发淘汰
+  # Maximum entries in the memory table; eviction is triggered when exceeded
   max_entries: 10000
-  # 去重相似度阈值：高于此值视为重复记忆，不重复写入
+  # Dedup similarity threshold: memories above this are treated as duplicates and not written again
   similarity_threshold_dup: 0.92
-  # 冲突检测阈值：高于此值但内容矛盾时触发冲突消解
+  # Conflict detection threshold: above this value but with contradictory content, conflict resolution is triggered
   similarity_threshold_conflict: 0.65
-  # 每写入多少条后执行一次自动淘汰（LRU）
+  # Run automatic eviction (LRU) after this many writes
   evict_interval: 100
-  # 是否启用向量化索引（加速相似度检索）
+  # Whether to enable the vector index (speeds up similarity search)
   enable_vector_index: true
 
 adversarial:
-  # M5: Red-Blue Adversarial Loop 配置
-  # 总开关：是否启用对抗降噪流程
+  # M5: Red-Blue Adversarial Loop configuration
+  # Master switch: whether to enable the adversarial denoising flow
   enabled: true
-  # Red-Blue 对抗最大轮数
+  # Maximum number of Red-Blue adversarial rounds
   max_rounds: 10
-  # Blue Agent 输出质量分阈值，达到此分即可提前终止对抗
+  # Blue Agent output quality score threshold; adversarial rounds stop early once reached
   score_threshold: 9.5
-  # 相邻两轮评分差异阈值，低于此值视为收敛，提前终止
+  # Score-difference threshold between adjacent rounds; below it counts as converged and stops early
   delta_threshold: 0.2
-  # 是否保存每轮对抗日志
-  # 注意：采样参数已移至 model.backend_sampling.modules，此处不再使用
+  # Whether to save logs for each adversarial round
+  # Note: sampling parameters have moved to model.backend_sampling.modules and are no longer used here
   save_logs: true
 
 evolution:
-  # M6: Self-Evolution Engine 配置
-  # 总开关：是否启用在线自进化训练
+  # M6: Self-Evolution Engine configuration
+  # Master switch: whether to enable online self-evolution training
   enabled: false
-  # 进化总轮数（GRPO 迭代次数）
+  # Total evolution rounds (GRPO iterations)
   num_rounds: 20
-  # 每轮采样的 query 数量
+  # Number of queries sampled per round
   batch_size: 32
-  # 每组 query 的采样组大小（GRPO group size）
+  # Sampling group size per query (GRPO group size)
   group_size: 8
-  # 单条轨迹最大交互轮数
+  # Maximum interaction rounds per trajectory
   grpo_steps: 50
-  # LoRA 微调学习率
+  # LoRA fine-tuning learning rate
   learning_rate: 5.0e-6
-  # KL 散度惩罚系数
+  # KL divergence penalty coefficient
   kl_coef: 0.01
-  # LoRA 低秩维度
+  # LoRA low-rank dimension
   lora_rank: 16
-  # 评委模型集成数量（多数投票降低方差）
+  # Number of judge models in the ensemble (majority voting reduces variance)
   judge_ensemble_size: 3
-  # 每隔多少轮在保留校准集上验证一次
+  # Validate on the held-out calibration set every this many rounds
   held_out_calib_interval: 5
-  # 每隔多少轮执行一次符号规则学习
+  # Run symbolic rule learning every this many rounds
   symbolic_learning_interval: 3
 
 tools:
-  # 工具模块全局配置
+  # Global tool module configuration
   web_search:
     enabled: true
-    # mock_mode: 无真实搜索 API 时返回模拟结果，用于快速调试
+    # mock_mode: returns mock results when no real search API is available, for quick debugging
     mock_mode: false
-    # 单次搜索返回的最大结果数
+    # Maximum results returned per search
     max_results: 10
-    # 搜索结果摘要最大 token 数
+    # Maximum tokens per search result snippet
     snippet_max_tokens: 512
   arxiv_reader:
     enabled: true
-    # 单次 ArXiv 查询最多获取的论文数
+    # Maximum papers fetched per ArXiv query
     max_papers: 5
-    # 论文摘要最大 token 数
+    # Maximum tokens per paper abstract
     abstract_max_tokens: 1024
   code_sandbox:
     enabled: false
-    # 代码执行超时（秒）
+    # Code execution timeout (seconds)
     timeout_seconds: 30
-    # 允许的最大内存（MB）
+    # Maximum memory allowed (MB)
     memory_limit_mb: 512

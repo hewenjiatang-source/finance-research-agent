@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "deep-research-agent"
 version = "0.1.0"
-description = "基于自进化+对抗降噪的DeepResearch Agent"
+description = "DeepResearch Agent based on self-evolution and adversarial denoising"
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.10"
@@ -25,46 +25,46 @@ classifiers = [
 ]
 
 dependencies = [
-    # 核心依赖
-    "anthropic>=0.40.0",   # 默认 LLM 后端：Claude
+    # Core dependencies
+    "anthropic>=0.40.0",   # default LLM backend: Claude
     "transformers>=4.40",
     "torch>=2.0",
     "numpy",
     "aiohttp",
     "pyyaml",
-    "python-dotenv>=1.0",  # 多后端 .env 配置支持
+    "python-dotenv>=1.0",  # multi-backend .env configuration
     "sentence-transformers",
-    "networkx",           # 用于 TextRank 等图算法
+    "networkx",           # graph algorithms such as TextRank
     "scikit-learn",
     "tqdm",
     "datasets",
     "pandas",
     "matplotlib",
-    # vLLM 推理服务（可选，本地部署时安装）
+    # vLLM inference server (optional, for local deployment)
     # "vllm",
-    # PEFT / LoRA 微调（自进化模块需要）
+    # PEFT / LoRA fine-tuning (needed by the self-evolution module)
     # "peft",
     # "accelerate",
     # "deepspeed",
 ]
 
 [project.optional-dependencies]
-# vLLM 推理服务依赖
+# vLLM inference server dependencies
 serve = [
     "vllm>=0.4.0",
 ]
-# 自进化训练依赖
+# Self-evolution training dependencies
 train = [
     "peft>=0.11.0",
     "accelerate>=0.30.0",
     "deepspeed>=0.14.0",
     "wandb",
 ]
-# OpenAI 兼容后端（DeepSeek / vLLM / OpenAI），可选
+# OpenAI-compatible backends (DeepSeek / vLLM / OpenAI), optional
 openai = [
     "openai>=1.0",
 ]
-# 开发依赖
+# Development dependencies
 dev = [
     "pytest>=7.0",
     "pytest-asyncio",
@@ -73,13 +73,13 @@ dev = [
     "mypy",
     "flake8",
 ]
-# 全部可选依赖
+# All optional dependencies
 all = [
     "deep-research-agent[serve,train,dev]",
 ]
 
 [project.scripts]
-# 命令行快捷入口
+# Command-line entry points
 run-research = "scripts.run_single:main"
 run-eval = "scripts.run_eval:main"
 run-ablation = "scripts.run_ablation:main"

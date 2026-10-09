@@ -1,32 +1,32 @@
 # =============================================================================
-# Notepad (笔记工具) 配置
+# Notepad tool configuration
 # =============================================================================
-# Agent 的私人草稿纸，用于记录中间结论、待办事项和搜索策略。
-# 纯内存实现（session 级），不持久化。
+# The Agent's private scratchpad, used to record intermediate conclusions, to-do items, and search strategies.
+# Pure in-memory implementation (session-scoped); not persisted.
 # =============================================================================
 
 notepad:
   name: "notepad"
-  description: "Agent 个人草稿纸，记录中间结论与待办事项"
+  description: "Agent's personal scratchpad for intermediate conclusions and to-do items"
 
-  # 总开关
+  # Master switch
   enabled: true
 
   # ---------------------------------------------------------------------------
-  # 笔记分类（category）建议值
+  # Suggested note categories
   # ---------------------------------------------------------------------------
-  # 这些只是建议，Agent 可以使用任意字符串作为 category。
+  # These are only suggestions; the Agent may use any string as a category.
   suggested_categories:
-    - "conclusion"   # 已确认的结论
-    - "todo"         # 待办事项（需要后续验证）
-    - "question"     # 未回答的疑问
-    - "source"       # 重要来源记录
-    - "strategy"     # 搜索策略/计划
+    - "conclusion"   # confirmed conclusions
+    - "todo"         # to-do items (need later verification)
+    - "question"     # unanswered questions
+    - "source"       # records of important sources
+    - "strategy"     # search strategy/plan
 
   # ---------------------------------------------------------------------------
-  # 使用建议
+  # Usage suggestions
   # ---------------------------------------------------------------------------
-  # 1. 每完成一轮关键搜索，使用 write 记录核心发现。
-  # 2. 发现新的待验证点时，使用 write(category="todo") 记录。
-  # 3. 长时程研究（>5 轮）中，每 3 轮使用 read 回顾一次笔记。
-  # 4. 避免笔记膨胀：单次 read 默认只返回最近 10 条。
+  # 1. After each round of key searching, use write to record the core findings.
+  # 2. When a new point to verify is found, record it with write(category="todo").
+  # 3. In long-horizon research (>5 rounds), use read to review the notes every 3 rounds.
+  # 4. Avoid note bloat: a single read returns only the 10 most recent entries by default.

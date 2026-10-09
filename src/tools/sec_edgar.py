@@ -1,20 +1,20 @@
 """
-SEC EDGAR 工具集（财报研究场景）
+SEC EDGAR toolset (financial-filings research scenario)
 
-  sec_filings : 列出公司的 10-K / 10-Q / 8-K 等申报文件（含申报日、报告期、accession、文档 URL）
-  sec_facts   : 读取 XBRL 结构化财务数据（收入、净利润、EPS、现金流、资产负债表…），
-                带 form / filed / accession 溯源。适合"取数"，比读正文更不容易抄错数字。
-  sec_filing  : 读取申报文件正文，可按 Item（如 7=MD&A, 1A=风险因素, 8=财务报表）抽取章节；
-                表格按行渲染为 "科目 | 本期 | 上期"，便于核对数字。
+  sec_filings : list a company's 10-K / 10-Q / 8-K filings (with filing date, period, accession, document URL)
+  sec_facts   : read structured XBRL financial data (revenue, net income, EPS, cash flow, balance sheet ...),
+                with form / filed / accession provenance. Suited to "fetching numbers"; less error-prone than copying from the text.
+  sec_filing  : read the filing text, extracting a section by Item (e.g. 7=MD&A, 1A=Risk Factors, 8=Financial Statements);
+                tables are rendered row by row as "line item | current | prior", which makes numbers easy to check.
 
-合规与稳健性:
-  * SEC 要求自动化请求在 User-Agent 里带联系方式 -> 环境变量 SEC_USER_AGENT（"名称 邮箱"），否则 403。
-  * 限速：默认 ≤ ~8 req/s（SEC 上限 10 req/s）；对 429/5xx 做指数退避重试。
-  * ``sec_filing`` 只允许访问 sec.gov 域名，避免被诱导访问任意 URL。
-  * 工具失败时返回 ``{"ok": False, "message": ...}`` 而不是 ``{"error": ...}``：
-    ResearcherAgent 见到 error 键会直接判整个子任务失败，而这里的错误（公司没找到、财年写错）
-    模型完全可以自己改参数重试。
-  * HTTP 层可注入（``fetcher=``），测试不需要联网。
+Compliance and robustness:
+  * SEC requires automated requests to carry contact info in the User-Agent -> env var SEC_USER_AGENT ("name email"), otherwise 403.
+  * Rate limit: by default <= ~8 req/s (SEC's limit is 10 req/s); exponential-backoff retries on 429/5xx.
+  * ``sec_filing`` may only access sec.gov domains, so it cannot be tricked into fetching arbitrary URLs.
+  * On failure the tools return ``{"ok": False, "message": ...}`` instead of ``{"error": ...}``:
+    ResearcherAgent fails the whole sub-task when it sees an error key, whereas errors here (company not found, wrong fiscal year)
+    can be fixed by the model itself by changing parameters and retrying.
+  * The HTTP layer is injectable (``fetcher=``), so tests need no network.
 """
 from __future__ import annotations
 
@@ -50,11 +50,11 @@ _DEFAULT_CORE_METRICS = [
 
 
 # ===========================================================================
-# HTTP 客户端
+# HTTP client
 # ===========================================================================
 
 class SecClient:
-    """带限速、重试、缓存的 SEC 客户端。fetcher(url) -> str 可注入。"""
+    """SEC client with rate limiting, retries and caching. fetcher(url) -> str is injectable."""
 
     def __init__(
         self,
@@ -91,10 +91,10 @@ class SecClient:
 
     def _http_get(self, url: str) -> str:
         if not self.user_agent:
-            raise PermissionError("SEC_USER_AGENT 未配置（格式: '名称 邮箱'），SEC 会拒绝没有联系方式的自动化请求")
+            raise PermissionError("SEC_USER_AGENT is not configured (format: 'name email'); SEC rejects automated requests without contact info")
         last_err: Exception | None = None
         for attempt in range(self.max_retries + 1):
-            with self._lock:  # 全局限速
+            with self._lock:  # global rate limit
                 wait = self.min_interval - (time.monotonic() - self._last)
                 if wait > 0:
                     time.sleep(wait)
@@ -122,9 +122,9 @@ class SecClient:
                 raise
         raise last_err  # pragma: no cover
 
-    # ---- 业务级辅助 ------------------------------------------------------
+    # ---- business-level helpers ------------------------------------------------------
     def resolve_company(self, query: str) -> dict | None:
-        """ticker / CIK / 公司名 -> {cik, ticker, name}。"""
+        """ticker / CIK / company name -> {cik, ticker, name}."""
         q = (query or "").strip()
         if not q:
             return None
@@ -152,7 +152,7 @@ class SecClient:
 
 
 # ===========================================================================
-# HTML -> 文本（表格按行渲染）
+# HTML -> text (tables rendered row by row)
 # ===========================================================================
 
 _ATTACH_LEFT = {")", "%", ")%"}
@@ -182,7 +182,7 @@ def _merge_cells(cells: list[str]) -> list[str]:
 def html_to_text(html: str) -> str:
     try:
         from bs4 import BeautifulSoup, NavigableString
-    except ImportError:  # 降级：粗暴去标签
+    except ImportError:  # fallback: crudely strip tags
         text = re.sub(r"<(script|style)[^>]*>.*?</\1>", " ", html, flags=re.S | re.I)
         text = re.sub(r"</(tr|p|div|br|h\d)>", "\n", text, flags=re.I)
         text = re.sub(r"<[^>]+>", " ", text)
@@ -191,7 +191,7 @@ def html_to_text(html: str) -> str:
     soup = BeautifulSoup(html, "html.parser")
     for tag in soup(["script", "style", "noscript"]):
         tag.decompose()
-    for tag in soup.find_all(["ix:header"]):  # inline XBRL 隐藏头，全是噪声
+    for tag in soup.find_all(["ix:header"]):  # hidden inline-XBRL header, all noise
         tag.decompose()
     for tr in soup.find_all("tr"):
         cells = [c.get_text(" ", strip=True) for c in tr.find_all(["td", "th"])]
@@ -211,12 +211,12 @@ _ITEM_RE = re.compile(r"(?im)^\s*item\s+(\d{1,2}[AB]?)\s*[\.\:\-—–]?\s*(.{0,
 
 
 def extract_section(text: str, item: str, min_body_chars: int = 1) -> str | None:
-    """按 10-K 的 Item 编号抽取章节（如 '7' / '1A' / 'Item 8'）。
+    """Extract a section by 10-K Item number (e.g. '7' / '1A' / 'Item 8').
 
-    目录里也有同样的 Item 标题，但它的"正文"是下一条目录项（标题行之后立刻又是另一个 Item），
-    长度极短。这里对每个候选起点取到"下一个不同 Item 标题"为止，选最长者，从而自然跳过目录；
-    同时要求标题行之后至少有 ``min_body_chars`` 个字符正文——只有目录、没有真实章节时返回 None，
-    而像 "Item 1B. Unresolved Staff Comments / None." 这种真实的短章节仍可取到。
+    The table of contents has the same Item headings, but its "body" is the next TOC entry (another Item right after the heading line)
+    and is very short. For each candidate start we take text up to the "next different Item heading" and pick the longest, which skips the TOC naturally;
+    we also require at least ``min_body_chars`` characters of body after the heading line - when there is only a TOC and no real section, None is returned,
+    while genuinely short sections such as "Item 1B. Unresolved Staff Comments / None." can still be found.
     """
     target = re.sub(r"(?i)^item\s*", "", item.strip()).upper().rstrip(".")
     matches = [(m.start(), m.group(1).upper()) for m in _ITEM_RE.finditer(text)]
@@ -232,7 +232,7 @@ def extract_section(text: str, item: str, min_body_chars: int = 1) -> str | None
         nl = text.find("\n", pos)
         heading_end = nl if 0 <= nl < end else end
         if len(text[heading_end:end].strip()) < min_body_chars:
-            continue  # 目录项：标题后面没有正文
+            continue  # TOC entry: no body after the heading
         if best is None or (end - pos) > (best[1] - best[0]):
             best = (pos, end)
     if best is None:
@@ -256,7 +256,7 @@ def _keyword_windows(text: str, keywords: list[str], width: int = 1500, top: int
                 break
     if not scored:
         return ""
-    # 以窗口为单位打分：窗口内命中的关键词越多越好
+    # score by window: the more keywords hit in a window the better
     buckets: dict[int, int] = {}
     for pos, w in scored:
         buckets[pos // width] = buckets.get(pos // width, 0) + w
@@ -269,7 +269,7 @@ def _keyword_windows(text: str, keywords: list[str], width: int = 1500, top: int
 
 
 # ===========================================================================
-# 工具基类
+# Tool base class
 # ===========================================================================
 
 class _SecTool:
@@ -290,7 +290,7 @@ class _SecTool:
         return {"ok": False, "message": message}
 
     def _not_configured(self) -> dict:
-        return self._fail("SEC_USER_AGENT 未配置：请在 .env 中设置 SEC_USER_AGENT=\"名称 邮箱\"")
+        return self._fail("SEC_USER_AGENT is not configured: set SEC_USER_AGENT=\"name email\" in .env")
 
 
 class SecFilingsTool(_SecTool):
@@ -325,7 +325,7 @@ class SecFilingsTool(_SecTool):
     def _run(self, company: str, form_types: list[str] | None, limit: int) -> dict:
         info = self.client.resolve_company(company)
         if info is None:
-            return self._fail(f"未找到公司 '{company}'，请改用股票代码或 CIK")
+            return self._fail(f"Company '{company}' not found; try a ticker or CIK instead")
         sub = self.client.get_json(f"https://data.sec.gov/submissions/CIK{info['cik']:010d}.json")
         recent = sub.get("filings", {}).get("recent", {})
         forms = {f.upper() for f in (form_types or ["10-K", "10-Q"])}
@@ -350,7 +350,7 @@ class SecFilingsTool(_SecTool):
             if len(out) >= max(1, int(limit)):
                 break
         if not out:
-            return self._fail(f"{info['name']} 在最近申报中没有 {sorted(forms)}（较早的申报未包含在 recent 列表内）")
+            return self._fail(f"{info['name']} has no {sorted(forms)} among its recent filings (older filings are not in the recent list)")
         return {"ok": True, "company": {**info, "name": sub.get("name", info["name"])}, "filings": out}
 
 
@@ -393,7 +393,7 @@ class SecFactsTool(_SecTool):
     def _run(self, company: str, fy: int, fp: str, metrics: list[str] | None) -> dict:
         info = self.client.resolve_company(company)
         if info is None:
-            return self._fail(f"未找到公司 '{company}'，请改用股票代码或 CIK")
+            return self._fail(f"Company '{company}' not found; try a ticker or CIK instead")
         url = f"https://data.sec.gov/api/xbrl/companyfacts/CIK{info['cik']:010d}.json"
         cf = self.client.get_json(url)
 
@@ -416,8 +416,8 @@ class SecFactsTool(_SecTool):
                 facts.append(d)
         if not facts:
             return self._fail(
-                f"{info['name']} FY{fy} {fp} 没有取到任何指标（财年标注可能不同，可尝试 fiscal_year±1，"
-                f"或用 sec_filings + sec_filing 阅读正文）。unknown_metrics={unknown}"
+                f"{info['name']} FY{fy} {fp} returned no metrics (the fiscal-year label may differ; try fiscal_year±1, "
+                f"or read the text with sec_filings + sec_filing). unknown_metrics={unknown}"
             )
         res: dict[str, Any] = {
             "ok": True,
@@ -456,7 +456,7 @@ class SecFilingTool(_SecTool):
     ) -> dict:
         host = (urlparse(url).hostname or "").lower()
         if not url.startswith("https://") or host not in _ALLOWED_HOSTS:
-            return self._fail("只允许读取 https://www.sec.gov/ 下的申报文件")
+            return self._fail("Only filings under https://www.sec.gov/ may be read")
         if not self.client.configured():
             return self._not_configured()
         try:
@@ -475,14 +475,14 @@ class SecFilingTool(_SecTool):
             sec = extract_section(text, section)
             if sec is None:
                 return self._fail(
-                    f"未能在该文档中定位 Item {section}（文档共 {total} 字符）。"
-                    f"可改用 find=[关键词] 检索，或不带 section 阅读开头。"
+                    f"Could not locate Item {section} in this document ({total} characters). "
+                    f"Try find=[keywords], or read the beginning without section."
                 )
             body, label = sec, f"Item {section.upper().replace('ITEM', '').strip()}"
         if find:
             win = _keyword_windows(body, find)
             if not win:
-                return self._fail(f"文档中未命中关键词 {find}")
+                return self._fail(f"No keyword hit in the document: {find}")
             body, label = win, f"{label} / keyword passages {find}"
 
         truncated = len(body) > max_chars

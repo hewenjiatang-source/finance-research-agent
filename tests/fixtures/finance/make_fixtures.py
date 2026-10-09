@@ -1,12 +1,12 @@
-"""生成【合成】的 SEC 夹具（虚构公司 Acme Corp，数字纯属虚构，仅用于测试）。
+"""Generate SYNTHETIC SEC fixtures (fictional company Acme Corp; numbers are made up, for tests only).
 
-刻意埋入真实 XBRL 里的坑，用来验证取数逻辑:
-  * 10-K/A 修订里的"错误"数值（必须被排除）
-  * 10-Q 的 9 个月累计值（与单季度同 accn、不同时长）
-  * 下一年 10-K 重复披露上年数值（fy 不同，不能被当成本期）
-  * 本期与上期对比值同属一份申报（fy 相同、end 不同）
+Deliberately plants pitfalls found in real XBRL, to verify the data-selection logic:
+  * "wrong" values in a 10-K/A amendment (must be excluded)
+  * 9-month cumulative values in a 10-Q (same accn as the quarter, different duration)
+  * the next year's 10-K repeating the prior-year values (different fy, must not be taken as current)
+  * current and prior comparative values in the same filing (same fy, different end)
 
-运行: python tests/fixtures/finance/make_fixtures.py
+Run: python tests/fixtures/finance/make_fixtures.py
 """
 import json
 from pathlib import Path
@@ -14,7 +14,7 @@ from pathlib import Path
 OUT = Path(__file__).parent
 CIK = 1234567
 
-# 金标准（真值），评测与测试共用
+# gold (ground truth), shared by evaluation and tests
 TRUTH = {
     2023: dict(revenue=48_250_000_000, gross_profit=21_100_000_000, operating_income=9_870_000_000,
                net_income=7_425_000_000, eps_diluted=3.71, diluted_shares=2_001_000_000,
@@ -45,7 +45,7 @@ CONCEPT = dict(
 
 ACCN_10K_22 = "0001234567-22-000011"
 ACCN_10K_23 = "0001234567-23-000010"
-ACCN_10KA_23 = "0001234567-24-000002"   # 10-K/A，数值被"改错"
+ACCN_10KA_23 = "0001234567-24-000002"   # 10-K/A, value deliberately "wrong"
 ACCN_10K_24 = "0001234567-24-000009"
 ACCN_10Q_Q1_24 = "0001234567-24-000003"
 
@@ -61,19 +61,19 @@ def add(facts, metric, val, end, start, form, accn, filed, fy, fp):
 def build_companyfacts():
     f = {}
     for m in CONCEPT:
-        # FY2022 10-K：本期 FY2022
+        # FY2022 10-K: current period FY2022
         add(f, m, TRUTH[2022][m], "2022-09-30", "2021-10-01", "10-K", ACCN_10K_22, "2022-11-03", 2022, "FY")
-        # FY2023 10-K：本期 FY2023 + 上期对比 FY2022（fy 同为 2023）
+        # FY2023 10-K: current FY2023 + prior comparative FY2022 (fy is 2023 for both)
         add(f, m, TRUTH[2023][m], "2023-09-30", "2022-10-01", "10-K", ACCN_10K_23, "2023-11-02", 2023, "FY")
         add(f, m, TRUTH[2022][m], "2022-09-30", "2021-10-01", "10-K", ACCN_10K_23, "2023-11-02", 2023, "FY")
-        # FY2024 10-K 重复披露 FY2023（fy=2024）
+        # FY2024 10-K repeats FY2023 (fy=2024)
         add(f, m, TRUTH[2023][m], "2023-09-30", "2022-10-01", "10-K", ACCN_10K_24, "2024-11-01", 2024, "FY")
-    # 10-K/A：把 FY2023 营收改成一个错误值（必须被排除）
+    # 10-K/A: changes FY2023 revenue to a wrong value (must be excluded)
     add(f, "revenue", 99_999_000_000, "2023-09-30", "2022-10-01", "10-K/A", ACCN_10KA_23, "2024-02-01", 2023, "FY")
-    # 10-Q Q1 FY2024：单季 3 个月（end 2023-12-31）
+    # 10-Q Q1 FY2024: single quarter, 3 months (end 2023-12-31)
     add(f, "revenue", 12_300_000_000, "2023-12-31", "2023-10-01", "10-Q", ACCN_10Q_Q1_24, "2024-02-02", 2024, "Q1")
     add(f, "revenue", 11_500_000_000, "2022-12-31", "2022-10-01", "10-Q", ACCN_10Q_Q1_24, "2024-02-02", 2024, "Q1")
-    # 同一份 10-Q 还有一条 9 个月累计型的"坏"数据（时长不对，必须被排除）
+    # the same 10-Q also has a 9-month cumulative "bad" row (wrong duration, must be excluded)
     add(f, "revenue", 36_000_000_000, "2023-12-31", "2023-04-01", "10-Q", ACCN_10Q_Q1_24, "2024-02-02", 2024, "Q1")
     return {"cik": CIK, "entityName": "Acme Corp", "facts": {"us-gaap": f}}
 

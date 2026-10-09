@@ -1,11 +1,11 @@
-"""可选的 LLM 判官层：只做规则做不了的事 —— 非数字断言是否被引用来源蕴含。
+"""Optional LLM judge layer: does only what rules cannot — whether non-numeric claims are entailed by the cited sources.
 
-设计取舍（写进报告的局限）:
-  * 默认关闭；规则层（numbers/citations/accuracy）已覆盖数字类断言，且零成本、可复现。
-  * 判官模型应与被测模型不同或更强（configs 里默认 claude-opus-5-5 当判官、sonnet 当被测），
-    避免同一模型评自己的"自偏好"；不能完全消除，因此只报告判官一致率，不把它混进硬指标。
-  * 只给判官看"与断言最相关的证据窗口"，不是整篇证据，控制成本，也避免长上下文稀释。
-  * 结果按 (断言, 证据窗口) 哈希缓存，重复评测不重复花钱。
+Design trade-offs (also listed as limitations in the report):
+  * Off by default; the rule layers (numbers/citations/accuracy) already cover numeric claims, at zero cost and reproducibly.
+  * The judge model should differ from, or be stronger than, the model under test (configs default to claude-opus-5-5 judging a sonnet),
+    to avoid a model grading its own output ("self-preference"); this cannot be fully removed, so only judge agreement is reported and it is kept out of the hard metrics.
+  * The judge only sees "the evidence window most relevant to the claim", not whole documents, to control cost and avoid long-context dilution.
+  * Results are cached by hash of (claim, evidence window), so repeated evaluations do not pay twice.
 """
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ _TOKEN = re.compile(r"[A-Za-z]{3,}|\d[\d,\.]*|[一-鿿]{2,}")
 
 
 def best_window(text: str, claim: str, size: int = 1800) -> str:
-    """从证据中取与断言词汇重叠最多的窗口。"""
+    """Pick the window of the evidence with the most vocabulary overlap with the claim."""
     if len(text) <= size:
         return text
     toks = {t.lower() for t in _TOKEN.findall(claim)}
@@ -62,7 +62,7 @@ class ClaimJudge:
         try:
             resp = self.policy([{"role": "system", "content": SYSTEM}, {"role": "user", "content": user}])
             out = self._parse(resp.get("content", "") or "")
-        except Exception as e:  # 判官失败不能拖垮评测
+        except Exception as e:  # a judge failure must not take down the evaluation
             out = {"verdict": "error", "reason": f"{type(e).__name__}: {e}"}
         self.cache[key] = out
         return out
@@ -80,7 +80,7 @@ class ClaimJudge:
         return {"verdict": v if v in VERDICTS else "error", "reason": str(d.get("reason", ""))[:300]}
 
     def judge_report(self, units, evidence: list[dict], max_claims: int = 40) -> dict:
-        """只审"有引用、且不含数字提及"的断言（数字类已由规则层确定性核对）。"""
+        """Only judge claims that have citations and no numeric mentions (numeric claims are checked deterministically by the rule layer)."""
         by_id = {e["id"]: e for e in evidence}
         items = []
         for u in units:

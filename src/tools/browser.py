@@ -1,20 +1,20 @@
 """
-浏览器工具 (BrowserTool) — 网页全文阅读器
+Browser tool (BrowserTool) — full-text web page reader
 
-设计理由：
-  web_search 只能返回搜索摘要（通常 100-200 字），而深度研究需要阅读网页原文。
-  BrowserTool 负责：打开 URL → 提取正文 → 清理广告/导航栏 → 返回结构化文本。
+Rationale:
+  web_search only returns search snippets (usually 100-200 characters), while deep research needs the original page text.
+  BrowserTool: open URL -> extract main text -> strip ads/navigation -> return structured text.
 
-与 web_search 的关系：
-  web_search: "找到可能有信息的链接"
-  browser: "读这个链接里的具体内容"
-  两者是上下游，不是重复。
+Relationship with web_search:
+  web_search: "find links that may contain information"
+  browser: "read the specific content behind this link"
+  They are upstream/downstream of each other, not duplicates.
 
-实现要点：
-  - 使用 aiohttp 异步抓取，避免阻塞事件循环
-  - 用 BeautifulSoup 提取正文（去除 script/style/nav 等噪声标签）
-  - 自动截断超长页面（保留前 N 个段落，防止 token 爆炸）
-  - 支持重试和错误降级
+Implementation notes:
+  - Fetch asynchronously with aiohttp so the event loop is not blocked
+  - Extract main text with BeautifulSoup (remove noise tags such as script/style/nav)
+  - Automatically truncate overlong pages (keep the first N paragraphs to prevent token explosion)
+  - Supports retries and graceful error degradation
 """
 from __future__ import annotations
 
@@ -28,17 +28,17 @@ import aiohttp
 
 __all__ = ["BrowserTool", "MockBrowserTool"]
 
-# 默认保留的正文字数上限（防止超长网页占满上下文）
+# Default upper bound on kept body characters (keeps overlong pages from filling the context)
 _DEFAULT_MAX_CHARS = 8000
 
-# HTML 中通常包含正文的标签
+# HTML tags that usually contain the main text
 _CONTENT_TAGS = ["article", "main", "section", "div"]
-# 噪声标签（直接移除）
+# Noise tags (removed outright)
 _NOISE_TAGS = ["script", "style", "nav", "header", "footer", "aside", "noscript", "iframe", "svg"]
 
 
 class BaseBrowserTool(ABC):
-    """浏览器工具基类。"""
+    """Base class of the browser tool."""
 
     name: str = "browser"
     description: str = (
@@ -50,19 +50,19 @@ class BaseBrowserTool(ABC):
 
     @abstractmethod
     async def execute(self, url: str, max_chars: int = _DEFAULT_MAX_CHARS) -> str:
-        """打开 URL，提取正文。
+        """Open a URL and extract the main text.
 
         Args:
-            url: 要访问的网页地址。
-            max_chars: 返回的最大字符数，超出则截断。
+            url: the web page address to visit.
+            max_chars: maximum characters returned; truncated beyond this.
 
         Returns:
-            提取后的正文文本。
+            The extracted main text.
         """
         ...
 
     def get_openai_tool_schema(self) -> dict:
-        """返回 OpenAI Function Calling 格式的 schema。"""
+        """Return the schema in OpenAI Function Calling format."""
         return {
             "type": "function",
             "function": {
@@ -88,12 +88,12 @@ class BaseBrowserTool(ABC):
 
 
 class BrowserTool(BaseBrowserTool):
-    """真实浏览器工具：异步 HTTP 抓取 + 正文提取。
+    """Real browser tool: async HTTP fetching + main-text extraction.
 
-    配置优先从 .env / .env.local 读取，构造函数参数仅作为覆盖。
-    支持的环境变量：
-      - BROWSER_TIMEOUT: HTTP 请求超时秒数（默认 15）
-      - BROWSER_USER_AGENT: 自定义 User-Agent
+    Configuration is read from .env / .env.local first; constructor arguments only override.
+    Supported environment variables:
+      - BROWSER_TIMEOUT: HTTP request timeout in seconds (default 15)
+      - BROWSER_USER_AGENT: custom User-Agent
     """
 
     def __init__(self, timeout: int | None = None, user_agent: str | None = None) -> None:
@@ -126,39 +126,39 @@ class BrowserTool(BaseBrowserTool):
             return f"[Browser Error] Unexpected: {type(e).__name__}: {e}"
 
     async def _fetch(self, url: str) -> str:
-        """异步获取网页 HTML。"""
+        """Asynchronously fetch the page HTML."""
         async with aiohttp.ClientSession(
             timeout=aiohttp.ClientTimeout(total=self.timeout),
             headers={"User-Agent": self.user_agent},
         ) as session:
             async with session.get(url, allow_redirects=True) as resp:
                 resp.raise_for_status()
-                # 尝试自动检测编码
+                # Try to auto-detect the encoding
                 charset = resp.charset or "utf-8"
                 return await resp.text(encoding=charset)
 
     def _extract_text(self, html: str) -> str:
-        """从 HTML 中提取正文。"""
+        """Extract the main text from HTML."""
         try:
             from bs4 import BeautifulSoup
         except ImportError:
-            # 降级：简单正则提取
+            # Fallback: simple regex extraction
             return self._fallback_extract(html)
 
         soup = BeautifulSoup(html, "html.parser")
 
-        # 移除噪声标签
+        # Remove noise tags
         for tag_name in _NOISE_TAGS:
             for tag in soup.find_all(tag_name):
                 tag.decompose()
 
-        # 策略 1：找 article 或 main 标签（语义化 HTML 常用）
+        # Strategy 1: find an article or main tag (common in semantic HTML)
         for tag_name in ["article", "main"]:
             tag = soup.find(tag_name)
             if tag:
                 return tag.get_text(separator="\n", strip=True)
 
-        # 策略 2：找最长的 div（启发式：正文通常在最长的 div 中）
+        # Strategy 2: find the longest div (heuristic: the main text is usually in the longest div)
         best_div = None
         best_len = 0
         for div in soup.find_all("div"):
@@ -170,7 +170,7 @@ class BrowserTool(BaseBrowserTool):
         if best_div and best_len > 200:
             return best_div.get_text(separator="\n", strip=True)
 
-        # 策略 3：降级到整个 body
+        # Strategy 3: fall back to the whole body
         body = soup.find("body")
         if body:
             return body.get_text(separator="\n", strip=True)
@@ -178,83 +178,83 @@ class BrowserTool(BaseBrowserTool):
         return soup.get_text(separator="\n", strip=True)
 
     def _fallback_extract(self, html: str) -> str:
-        """无 BeautifulSoup 时的降级提取。"""
-        # 移除 script/style 内容
+        """Fallback extraction when BeautifulSoup is unavailable."""
+        # Remove script/style content
         html = re.sub(r"<script[^>]*>.*?</script>", "", html, flags=re.DOTALL | re.IGNORECASE)
         html = re.sub(r"<style[^>]*>.*?</style>", "", html, flags=re.DOTALL | re.IGNORECASE)
-        # 移除所有标签，保留文本
+        # Remove all tags, keep the text
         text = re.sub(r"<[^>]+>", "\n", html)
         return self._clean_text(text)
 
     @staticmethod
     def _clean_text(text: str) -> str:
-        """清理提取后的文本。"""
-        # 合并多余换行
+        """Clean the extracted text."""
+        # Merge extra newlines
         text = re.sub(r"\n\s*\n+", "\n\n", text)
-        # 去除每行首尾空白
+        # Strip leading/trailing whitespace on each line
         lines = [line.strip() for line in text.splitlines()]
-        # 过滤空行和过短行（通常是导航项）
+        # Filter empty and too-short lines (usually navigation items)
         lines = [line for line in lines if len(line) > 3]
         return "\n".join(lines)
 
 
 class MockBrowserTool(BaseBrowserTool):
-    """Mock 浏览器工具：用于无网络环境调试。"""
+    """Mock browser tool: for debugging without a network."""
 
     _MOCK_PAGES: dict[str, str] = {
         "https://example.com/ai-report-2024": """
-2024 年全球人工智能发展报告
+2024 Global Artificial Intelligence Development Report
 
-摘要
-2024 年，全球 AI 产业进入爆发期。大语言模型参数量突破万亿级别，
-多模态能力显著增强。中美两国在 AI 基础研究和应用落地上持续领跑。
+Summary
+In 2024 the global AI industry entered a boom period. Large language models passed the trillion-parameter mark,
+and multimodal capabilities improved markedly. China and the US continue to lead in both foundational AI research and deployment.
 
-一、市场规模
-据 IDC 统计，2024 年全球 AI 市场规模达到 5,540 亿美元，同比增长 38.2%。
-其中，生成式 AI 占比 28%，约 1,551 亿美元。
+1. Market size
+According to IDC, the global AI market reached USD 554.0 billion in 2024, up 38.2% year over year.
+Generative AI accounted for 28%, about USD 155.1 billion.
 
-二、技术进展
-1. 大语言模型：GPT-4o、Claude 3.5、Gemini 1.5 Pro 等模型在多模态推理上取得突破
-2. 代码生成：GitHub Copilot 月活开发者超过 500 万
-3. 科学发现：AlphaFold 3 预测几乎所有生物分子结构
+2. Technical progress
+1. Large language models: GPT-4o, Claude 3.5, Gemini 1.5 Pro and others made breakthroughs in multimodal reasoning
+2. Code generation: GitHub Copilot has more than 5 million monthly active developers
+3. Scientific discovery: AlphaFold 3 predicts the structures of almost all biomolecules
 
-三、主要玩家
-- OpenAI：估值 1,570 亿美元，年化收入 34 亿美元
-- Anthropic：估值 400 亿美元，Claude 系列增长迅速
-- Google DeepMind：Gemini 整合进全线产品
-- 百度：文心一言用户数突破 3 亿
+3. Key players
+- OpenAI: valued at USD 157 billion, annualized revenue USD 3.4 billion
+- Anthropic: valued at USD 40 billion, Claude series growing rapidly
+- Google DeepMind: Gemini integrated across the product line
+- Baidu: ERNIE Bot users exceed 300 million
 
-四、政策与监管
-欧盟《人工智能法案》于 2024 年 8 月正式生效，成为全球首部全面监管 AI 的法律。
+4. Policy and regulation
+The EU AI Act formally entered into force in August 2024, the world's first comprehensive law regulating AI.
 
-来源：IDC、OpenAI Blog、Anthropic 官方公告
+Sources: IDC, OpenAI Blog, Anthropic official announcements
         """.strip(),
         "https://example.com/quantum-computing": """
-量子计算最新进展（2024）
+Quantum computing: latest progress (2024)
 
-IBM 于 2024 年 12 月发布了 Condor 量子处理器，拥有 1,121 个量子比特，
-是目前 publicly available 的最大量子处理器。
+In December 2024 IBM released the Condor quantum processor with 1,121 qubits,
+the largest publicly available quantum processor.
 
-Google Quantum AI 团队实现了 surface code 纠错的关键里程碑，
-逻辑错误率首次低于物理错误率。
+The Google Quantum AI team reached a key milestone in surface-code error correction,
+with the logical error rate falling below the physical error rate for the first time.
 
-中国科学技术大学潘建伟团队实现了 255 光子量子计算优越性。
+The team of Pan Jianwei at the University of Science and Technology of China achieved quantum computational advantage with 255 photons.
 
-来源：IBM Research Blog、Nature、中国科学技术大学官网
+Sources: IBM Research Blog, Nature, USTC official website
         """.strip(),
     }
 
     async def execute(self, url: str, max_chars: int = _DEFAULT_MAX_CHARS) -> str:
-        await asyncio.sleep(0.1)  # 模拟网络延迟
+        await asyncio.sleep(0.1)  # simulate network latency
 
-        # 精确匹配
+        # Exact match
         if url in self._MOCK_PAGES:
             content = self._MOCK_PAGES[url]
             if len(content) > max_chars:
                 content = content[:max_chars] + "\n\n[CONTENT_TRUNCATED]"
             return content
 
-        # 模糊匹配：根据 URL 关键词返回通用 mock
+        # Fuzzy match: return a generic mock based on URL keywords
         if "wikipedia" in url.lower():
             return f"[Mock Browser] Wikipedia page for {url}\n\nThis is a mock Wikipedia article. In production, BrowserTool would fetch the real Wikipedia content."
 
@@ -262,7 +262,7 @@ Google Quantum AI 团队实现了 surface code 纠错的关键里程碑，
 
 
 def get_browser_tool(mock_mode: bool = False, **kwargs) -> BaseBrowserTool:
-    """工厂函数：根据配置返回 BrowserTool 或 MockBrowserTool。"""
+    """Factory function: return a BrowserTool or MockBrowserTool according to configuration."""
     if mock_mode:
         return MockBrowserTool()
     return BrowserTool(**kwargs)

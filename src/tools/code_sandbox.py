@@ -1,9 +1,9 @@
 """
-代码沙箱工具
+Code sandbox tool
 
-模拟执行 Python 代码，返回 stdout / stderr / 返回值。
-当前为安全模拟版：仅解析简单表达式或返回预定义结果，不真正执行任意代码。
-生产环境可替换为 Docker 沙箱或受限子进程。
+Simulates running Python code and returns stdout / stderr / the return value.
+This is currently a safe simulated version: it only parses simple expressions or returns predefined results and does not truly execute arbitrary code.
+In production it can be replaced with a Docker sandbox or a restricted subprocess.
 """
 from __future__ import annotations
 
@@ -21,13 +21,13 @@ __all__ = ["CodeSandboxTool"]
 
 
 class CodeSandboxTool:
-    """代码沙箱工具。
+    """Code sandbox tool.
 
-    安全策略:
-      1. 默认仅允许 ast.parse 解析的纯表达式（无函数定义、无 import）
-      2. 危险内置函数被黑名单过滤
-      3. 超时保护（通过 asyncio.wait_for 在外层实现）
-      4. 真正执行时限制 builtins 访问
+    Security policy:
+      1. By default only pure expressions parsed by ast.parse are allowed (no function definitions, no imports)
+      2. Dangerous builtins are filtered by a blacklist
+      3. Timeout protection (implemented outside via asyncio.wait_for)
+      4. builtins access is restricted during real execution
     """
 
     name: str = "code_sandbox"
@@ -37,7 +37,7 @@ class CodeSandboxTool:
         "Output: {'stdout': str, 'stderr': str, 'return_value': Any, 'success': bool}."
     )
 
-    # 危险 builtins 黑名单
+    # Blacklist of dangerous builtins
     _FORBIDDEN_NAMES = {
         "__import__", "open", "eval", "exec", "compile",
         "input", "raw_input", "reload", "exit", "quit",
@@ -48,7 +48,7 @@ class CodeSandboxTool:
         from ..utils.env_config import get_env_int
 
         self.use_mock = use_mock
-        # 默认超时从 .env 读取，方便统一调整
+        # Default timeout is read from .env for easy central adjustment
         self.default_timeout = get_env_int("CODE_SANDBOX_TIMEOUT", 10)
 
     def get_openai_tool_schema(self) -> dict:
@@ -76,14 +76,14 @@ class CodeSandboxTool:
         }
 
     async def execute(self, code: str, timeout: int | None = None) -> dict[str, Any]:
-        """在沙箱中执行 Python 代码。
+        """Run Python code in the sandbox.
 
         Args:
-            code: Python 代码字符串。
-            timeout: 超时秒数。
+            code: Python code string.
+            timeout: timeout in seconds.
 
         Returns:
-            包含 stdout, stderr, return_value, success 的字典。
+            Dict containing stdout, stderr, return_value, success.
         """
         actual_timeout = timeout if timeout is not None else self.default_timeout
         if self.use_mock:
@@ -91,7 +91,7 @@ class CodeSandboxTool:
         return await self._safe_execute(code, actual_timeout)
 
     async def _mock_execute(self, code: str) -> dict[str, Any]:
-        """Mock 模式：模拟常见计算结果。"""
+        """Mock mode: simulate common computation results."""
         await asyncio.sleep(random.randint(50, 200) / 1000.0)
 
         code_stripped = code.strip().lower()
@@ -117,8 +117,8 @@ class CodeSandboxTool:
         }
 
     async def _safe_execute(self, code: str, timeout: int) -> dict[str, Any]:
-        """受限执行模式。"""
-        # 1. 语法检查
+        """Restricted execution mode."""
+        # 1. Syntax check
         try:
             tree = ast.parse(code)
         except SyntaxError as e:
@@ -129,7 +129,7 @@ class CodeSandboxTool:
                 "success": False,
             }
 
-        # 2. 静态安全检查：遍历 AST 查找禁止节点
+        # 2. Static safety check: walk the AST looking for forbidden nodes
         for node in ast.walk(tree):
             if isinstance(node, ast.Import | ast.ImportFrom):
                 return {
@@ -139,7 +139,7 @@ class CodeSandboxTool:
                     "success": False,
                 }
             if isinstance(node, ast.Call):
-                # 检查是否调用黑名单函数
+                # Check whether a blacklisted function is called
                 if isinstance(node.func, ast.Name) and node.func.id in self._FORBIDDEN_NAMES:
                     return {
                         "stdout": "",
@@ -148,7 +148,7 @@ class CodeSandboxTool:
                         "success": False,
                     }
 
-        # 3. 在受限环境中执行
+        # 3. Execute in the restricted environment
         def _run() -> dict[str, Any]:
             safe_globals = {"__builtins__": {}}
             safe_locals: dict[str, Any] = {}
@@ -172,7 +172,7 @@ class CodeSandboxTool:
                 }
 
         try:
-            # 使用 asyncio 的 run_in_executor 避免阻塞事件循环
+            # Use asyncio's run_in_executor to avoid blocking the event loop
             loop = asyncio.get_running_loop()
             return await asyncio.wait_for(
                 loop.run_in_executor(None, _run),

@@ -1,11 +1,11 @@
 """
-Embedder 模块：文本向量化封装
+Embedder module: text vectorization wrapper
 
-设计决策：
-1. 主模型使用 all-MiniLM-L6-v2（轻量、384维、效果足够）
-2. 提供 graceful fallback：当 sentence-transformers 未安装时，
-   返回 deterministic random embedding（基于文本hash），确保测试可复现
-3. 单例模型加载 + lazy init，避免重复初始化开销
+Design decisions:
+1. The main model is all-MiniLM-L6-v2 (lightweight, 384 dimensions, good enough)
+2. Provides a graceful fallback: when sentence-transformers is not installed,
+   return a deterministic random embedding (based on the text hash), so tests are reproducible
+3. Single-instance model loading + lazy init, avoiding repeated initialization cost
 """
 
 from __future__ import annotations
@@ -18,13 +18,13 @@ from typing import Optional
 
 import numpy as np
 
-# 国内环境自动使用 HuggingFace 镜像（hf-mirror.com）
+# in mainland-China environments use the HuggingFace mirror (hf-mirror.com) automatically
 if os.environ.get("HF_ENDPOINT", "").strip() == "":
     os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
 
 logger = logging.getLogger(__name__)
 
-# 尝试导入 sentence-transformers，未安装时标记
+# try to import sentence-transformers, flag it if not installed
 try:
     from sentence_transformers import SentenceTransformer
     _SENTENCE_TRANSFORMERS_AVAILABLE = True
@@ -36,31 +36,31 @@ except ImportError:
 
 
 class Embedder:
-    """文本向量化器，封装 sentence-transformers 并提供 fallback。"""
+    """Text vectorizer: wraps sentence-transformers and provides a fallback."""
 
-    # 类级别缓存：避免重复加载模型
+    # class-level cache: avoids reloading the model
     _model_instance: Optional[object] = None
     _model_name: str = "sentence-transformers/all-MiniLM-L6-v2"
-    _embedding_dim: int = 384  # all-MiniLM-L6-v2 输出维度
+    _embedding_dim: int = 384  # output dimension of all-MiniLM-L6-v2
 
     def __init__(self, model_name: Optional[str] = None) -> None:
         """
-        初始化 Embedder。
+        Initialize the Embedder.
 
         Args:
-            model_name: 指定 sentence-transformers 模型名，None 使用默认 all-MiniLM-L6-v2
+            model_name: sentence-transformers model name; None uses the default all-MiniLM-L6-v2
         """
         self.model_name = model_name or self._model_name
         self._model: Optional[object] = None
         self._available = _SENTENCE_TRANSFORMERS_AVAILABLE
 
     def _load_model(self) -> object:
-        """懒加载模型，返回 SentenceTransformer 实例或 None（fallback 模式）。"""
+        """Lazily load the model, returning a SentenceTransformer instance or None (fallback mode)."""
         if not self._available:
             return None
         if self._model is not None:
             return self._model
-        # 尝试加载类缓存
+        # try to load from the class cache
         if Embedder._model_instance is not None:
             self._model = Embedder._model_instance
             return self._model
@@ -76,16 +76,16 @@ class Embedder:
 
     def encode(self, text: str) -> list[float]:
         """
-        将文本转为 embedding 向量。
+        Convert text into an embedding vector.
 
         Args:
-            text: 输入文本
+            text: the input text
 
         Returns:
-            浮点列表，长度 384（主模型）或 fallback 维度
+            list of floats, of length 384 (main model) or the fallback dimension
         """
         if not text or not text.strip():
-            # 空文本返回零向量
+            # empty text returns a zero vector
             return [0.0] * self._embedding_dim
 
         model = self._load_model()
@@ -96,20 +96,20 @@ class Embedder:
             except Exception as e:
                 logger.warning(f"Model encode failed, fallback to random: {e}")
 
-        # Fallback: deterministic random embedding（基于文本 hash）
+        # Fallback: deterministic random embedding (based on the text hash)
         return self._fallback_embedding(text)
 
     def _fallback_embedding(self, text: str) -> list[float]:
         """
-        确定性随机 embedding fallback。
+        Deterministic random embedding fallback.
 
-        使用文本 MD5 hash 作为随机种子，确保相同文本始终产生相同向量，
-        便于测试和去重逻辑的一致性验证。
+        Uses the text's MD5 hash as the random seed, so identical text always yields the identical vector,
+        which helps tests and the consistency checks of the dedup logic.
         """
         seed = int(hashlib.md5(text.encode("utf-8")).hexdigest(), 16) % (2**31)
         rng = random.Random(seed)
         vec = [rng.gauss(0.0, 1.0) for _ in range(self._embedding_dim)]
-        # L2 归一化
+        # L2 normalization
         norm = float(np.linalg.norm(vec))
         if norm > 1e-9:
             vec = [v / norm for v in vec]
@@ -117,13 +117,13 @@ class Embedder:
 
     def encode_batch(self, texts: list[str]) -> list[list[float]]:
         """
-        批量编码，比多次单条 encode 更高效。
+        Batch encoding, more efficient than many single encode calls.
 
         Args:
-            texts: 文本列表
+            texts: list of texts
 
         Returns:
-            embedding 列表
+            list of embeddings
         """
         if not texts:
             return []
@@ -138,11 +138,11 @@ class Embedder:
 
     @property
     def dim(self) -> int:
-        """返回 embedding 维度。"""
+        """Return the embedding dimension."""
         return self._embedding_dim
 
     @property
     def is_available(self) -> bool:
-        """返回是否使用真实模型（False 表示处于 fallback 模式）。"""
+        """Return whether the real model is used (False means fallback mode)."""
         _ = self._load_model()
         return self._available and self._model is not None

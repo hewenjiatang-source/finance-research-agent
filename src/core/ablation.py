@@ -3,9 +3,9 @@
 """
 src/core/ablation.py
 ================================================================================
-消融实验通用框架。
+General framework for ablation experiments.
 
-对外接口:
+Public interface:
     - AblationStudy.run_module_ablation(config, questions, systems) -> dict
     - AblationStudy.run_rounds_ablation(config, questions, max_rounds) -> dict
 ================================================================================
@@ -28,20 +28,20 @@ logger = logging.getLogger("ablation")
 
 
 class AblationStudy:
-    """消融实验框架：支持模块消融和对抗轮数消融。"""
+    """Ablation framework: supports module ablation and adversarial-round ablation."""
 
-    # 模块消融的默认配置映射
+    # default configuration mapping for module ablation
     DEFAULT_MODULE_ABLATIONS: dict[str, tuple[str, dict]] = {
-        "full": ("完整系统", {}),
-        "no_adversarial": ("关闭对抗降噪", {"adversarial": {"enabled": False}}),
-        "no_compressor": ("关闭上下文压缩", {"compressor": {"enable_multilevel": False}}),
-        "no_memory": ("关闭记忆存储", {"memory": {"enabled": False}}),
-        "no_evolution": ("关闭进化学习", {"evolution": {"enabled": False}}),
+        "full": ("Full system", {}),
+        "no_adversarial": ("Adversarial denoising off", {"adversarial": {"enabled": False}}),
+        "no_compressor": ("Context compression off", {"compressor": {"enable_multilevel": False}}),
+        "no_memory": ("Memory store off", {"memory": {"enabled": False}}),
+        "no_evolution": ("Evolution learning off", {"evolution": {"enabled": False}}),
     }
 
     @staticmethod
     def override_config(config: dict, overrides: dict) -> dict:
-        """深度合并配置覆盖（支持嵌套字典）。"""
+        """Deep-merge configuration overrides (supports nested dicts)."""
         cfg = copy.deepcopy(config)
 
         def _deep_merge(base: dict, patch: dict) -> dict:
@@ -55,7 +55,7 @@ class AblationStudy:
         return _deep_merge(cfg, overrides)
 
     # -----------------------------------------------------------------------
-    # 模块消融：full / no_XXX
+    # Module ablation: full / no_XXX
     # -----------------------------------------------------------------------
     @classmethod
     def run_module_ablation(
@@ -65,16 +65,16 @@ class AblationStudy:
         systems: dict[str, tuple[str, dict]] | None = None,
     ) -> dict[str, Any]:
         """
-        运行模块消融实验。
+        Run the module ablation experiment.
 
         Args:
-            config: 基础配置。
-            questions: 评测题目列表（每条含 id, query）。
-            systems: 消融配置映射。键为 system_name，值为 (描述, 配置覆盖)。
-                     默认使用 DEFAULT_MODULE_ABLATIONS。
+            config: base configuration.
+            questions: list of evaluation questions (each with id, query).
+            systems: ablation configuration mapping. Keys are system_name, values are (description, config override).
+                     DEFAULT_MODULE_ABLATIONS is used by default.
 
         Returns:
-            包含各系统得分和明细的字典。
+            a dict containing the scores and details of each system.
         """
         if systems is None:
             systems = cls.DEFAULT_MODULE_ABLATIONS
@@ -83,7 +83,7 @@ class AblationStudy:
 
         for name, (desc, overrides) in systems.items():
             logger.info(f"\n{'='*60}")
-            logger.info(f"[消融实验] {name}: {desc}")
+            logger.info(f"[Ablation] {name}: {desc}")
             logger.info(f"{'='*60}")
 
             cfg = cls.override_config(config, overrides)
@@ -102,8 +102,8 @@ class AblationStudy:
                     report = asyncio.run(run_research(query, cfg, modules))
                     elapsed = time.time() - start
 
-                    # 评分由外部调用方注入（避免 evaluation/ 反向依赖）
-                    # 这里只记录原始报告和元信息
+                    # scores are injected by the external caller (avoids evaluation/ depending back)
+                    # only the raw report and metadata are recorded here
                     details.append({
                         "question_id": qid,
                         "query": query,
@@ -111,11 +111,11 @@ class AblationStudy:
                         "report_length": len(report),
                         "system": name,
                     })
-                    scores.append(1.0)  # 占位，实际分数由外部 evaluator 填充
-                    logger.info(f"    → 成功, time={elapsed:.1f}s, len={len(report)}")
+                    scores.append(1.0)  # placeholder; the real score is filled in by the external evaluator
+                    logger.info(f"    → success, time={elapsed:.1f}s, len={len(report)}")
 
                 except Exception as e:
-                    logger.warning(f"    → 失败: {e}")
+                    logger.warning(f"    → failed: {e}")
                     details.append({
                         "question_id": qid,
                         "query": query,
@@ -133,7 +133,7 @@ class AblationStudy:
             })
 
         return {
-            "evaluation_name": "DeepResearch Agent 模块消融实验",
+            "evaluation_name": "DeepResearch Agent module ablation experiment",
             "timestamp": datetime.now().isoformat(),
             "num_questions": len(questions),
             "systems": results,
@@ -141,7 +141,7 @@ class AblationStudy:
         }
 
     # -----------------------------------------------------------------------
-    # 对抗轮数消融：0/1/2/3 轮
+    # Adversarial-round ablation: 0/1/2/3 rounds
     # -----------------------------------------------------------------------
     @classmethod
     def run_rounds_ablation(
@@ -151,22 +151,22 @@ class AblationStudy:
         max_rounds: int = 3,
     ) -> dict[str, Any]:
         """
-        在不同对抗轮数下运行评测。
+        Run the evaluation under different numbers of adversarial rounds.
 
         Args:
-            config: 基础配置。
-            questions: 评测题目列表。
-            max_rounds: 最大对抗轮数。
+            config: base configuration.
+            questions: list of evaluation questions.
+            max_rounds: maximum number of adversarial rounds.
 
         Returns:
-            键为 adv_0 / adv_1 / ... / adv_N 的结果字典。
+            result dicts keyed adv_0 / adv_1 / ... / adv_N.
         """
         summary: dict[str, float] = {}
         full_details: dict[str, Any] = {}
 
         for rounds in range(max_rounds + 1):
             logger.info(f"\n{'='*50}")
-            logger.info(f"正在运行对抗轮数 = {rounds}")
+            logger.info(f"Running with adversarial rounds = {rounds}")
             logger.info(f"{'='*50}")
 
             overrides = {
@@ -188,7 +188,7 @@ class AblationStudy:
 
                 try:
                     report = asyncio.run(run_research(query, cfg, modules))
-                    scores.append(1.0)  # 占位
+                    scores.append(1.0)  # placeholder
                     details.append({
                         "question_id": qid,
                         "query": query,
@@ -196,7 +196,7 @@ class AblationStudy:
                         "report_length": len(report),
                     })
                 except Exception as e:
-                    logger.warning(f"    → 失败: {e}")
+                    logger.warning(f"    → failed: {e}")
                     scores.append(0.0)
                     details.append({
                         "question_id": qid,
@@ -209,10 +209,10 @@ class AblationStudy:
             key = f"adv_{rounds}"
             summary[key] = avg_score
             full_details[key] = details
-            logger.info(f"对抗轮数 {rounds} 平均得分: {avg_score:.4f}")
+            logger.info(f"Adversarial rounds {rounds} average score: {avg_score:.4f}")
 
         return {
-            "evaluation_name": "DeepResearch Agent 对抗轮数消融实验",
+            "evaluation_name": "DeepResearch Agent adversarial-round ablation experiment",
             "timestamp": datetime.now().isoformat(),
             "summary": summary,
             "details": full_details,
@@ -220,11 +220,11 @@ class AblationStudy:
         }
 
     # -----------------------------------------------------------------------
-    # 结果保存
+    # Saving results
     # -----------------------------------------------------------------------
     @staticmethod
     def save_results(data: dict[str, Any], output_dir: str, prefix: str = "ablation") -> str:
-        """保存消融结果到 JSON 文件。"""
+        """Save the ablation results to a JSON file."""
         os.makedirs(output_dir, exist_ok=True)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filepath = os.path.join(output_dir, f"{prefix}_{timestamp}.json")
@@ -232,5 +232,5 @@ class AblationStudy:
         with open(filepath, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
 
-        logger.info(f"消融结果已保存: {filepath}")
+        logger.info(f"Ablation results saved: {filepath}")
         return filepath

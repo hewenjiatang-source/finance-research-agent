@@ -24,7 +24,7 @@ def wilson(k: int, n: int, z: float = 1.96) -> tuple[float, float] | None:
 
 def build_case(case_id: str, query: str, companyfacts: dict, fiscal_year: int, ticker: str,
                aliases: list[str] | None = None, headline: list[str] | None = None) -> dict:
-    """用 SEC companyfacts 生成带金标准的用例（金标准 = 申报中的 XBRL 数值，不是 LLM 输出）。"""
+    """Build a case with gold from SEC companyfacts (gold = XBRL values from the filing, not LLM output)."""
     gold = gold_from_companyfacts(companyfacts, fiscal_year, (aliases or []) + [ticker])
     return {
         "id": case_id, "query": query, "ticker": ticker, "company": gold.company, "fiscal_year": fiscal_year,
@@ -44,7 +44,7 @@ def _gold_of(case: dict) -> Gold:
 
 
 def evaluate_dir(reports_dir: str | Path, cases: list[dict], judge=None) -> list[dict]:
-    """目录约定：<case_id>.md + <case_id>.evidence.json（run_finance_eval --run 会这样落盘）。"""
+    """Directory convention: <case_id>.md + <case_id>.evidence.json (written this way by run_finance_eval --run)."""
     out = []
     d = Path(reports_dir)
     for c in cases:

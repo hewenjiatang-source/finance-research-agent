@@ -1,8 +1,8 @@
 """
-DAG (有向无环图) 数据结构与拓扑排序
+DAG (directed acyclic graph) data structure and topological sort
 
-规划器输出的子任务依赖关系用 DAG 表示，编排器按拓扑序调度执行。
-使用 Kahn 算法进行拓扑排序，并支持按层分组以最大化并行度。
+The sub-task dependencies output by the planner are represented as a DAG, and the orchestrator schedules execution in topological order.
+Uses Kahn's algorithm for topological sorting and supports grouping by layer to maximize parallelism.
 """
 from __future__ import annotations
 
@@ -14,51 +14,51 @@ __all__ = ["DAG", "DAGCycleError"]
 
 
 class DAGCycleError(Exception):
-    """DAG 中存在环时抛出，提示规划器输出非法。"""
+    """Raised when the DAG contains a cycle, indicating the planner output is invalid."""
     pass
 
 
 class DAG:
-    """有向无环图：节点为 task_id，边表示依赖关系 (u -> v 表示 v 依赖 u)。
+    """Directed acyclic graph: nodes are task_ids, edges express dependencies (u -> v means v depends on u).
 
-    设计说明:
-      - 采用邻接表存储，兼顾内存效率和遍历速度
-      - 拓扑排序使用 Kahn 算法，时间复杂度 O(V+E)
-      - get_parallel_groups() 将节点按"执行层"分组，同层节点无依赖可并行
+    Design notes:
+      - adjacency-list storage, balancing memory efficiency and traversal speed
+      - topological sort uses Kahn's algorithm, time complexity O(V+E)
+      - get_parallel_groups() groups nodes into "execution layers"; nodes in one layer have no dependencies and can run in parallel
     """
 
     def __init__(self) -> None:
         self._nodes: set[str] = set()
-        self._edges: dict[str, list[str]] = defaultdict(list)   # 邻接表: node -> successors
+        self._edges: dict[str, list[str]] = defaultdict(list)   # adjacency list: node -> successors
         self._in_degree: dict[str, int] = defaultdict(int)
 
     # ------------------------------------------------------------------
-    # 增删查
+    # Add / remove / query
     # ------------------------------------------------------------------
 
     def add_node(self, node_id: str) -> None:
-        """添加节点；已存在则静默忽略。"""
+        """Add a node; silently ignored if it already exists."""
         self._nodes.add(node_id)
 
     def add_edge(self, from_node: str, to_node: str) -> None:
-        """添加有向边 from_node -> to_node (to_node 依赖 from_node)。
+        """Add a directed edge from_node -> to_node (to_node depends on from_node).
 
-        自动添加缺失的节点，并更新入度。
+        Missing nodes are added automatically and the in-degree is updated.
         """
         if from_node == to_node:
-            raise DAGCycleError(f"自环不允许: {from_node}")
+            raise DAGCycleError(f"Self-loops are not allowed: {from_node}")
         self._nodes.add(from_node)
         self._nodes.add(to_node)
         self._edges[from_node].append(to_node)
         self._in_degree[to_node] += 1
-        # 确保 from_node 也在 _in_degree 中有条目（即使为 0）
+        # make sure from_node also has an entry in _in_degree (even if 0)
         self._in_degree.setdefault(from_node, 0)
 
     def has_node(self, node_id: str) -> bool:
         return node_id in self._nodes
 
     def get_dependencies(self, node_id: str) -> list[str]:
-        """返回直接依赖 node_id 的节点列表（即指向 node_id 的边）。"""
+        """Return the list of nodes that directly depend on node_id (edges pointing out of node_id)."""
         deps: list[str] = []
         for src, dsts in self._edges.items():
             if node_id in dsts:
@@ -66,7 +66,7 @@ class DAG:
         return deps
 
     def get_successors(self, node_id: str) -> list[str]:
-        """返回 node_id 直接指向的后继节点。"""
+        """Return the successor nodes node_id points to directly."""
         return list(self._edges.get(node_id, []))
 
     def __iter__(self) -> Iterator[str]:
@@ -79,17 +79,17 @@ class DAG:
         return node_id in self._nodes
 
     # ------------------------------------------------------------------
-    # 拓扑排序
+    # Topological sort
     # ------------------------------------------------------------------
 
     def topological_sort(self) -> list[str]:
-        """Kahn 算法拓扑排序，返回节点全序列表。
+        """Kahn's algorithm topological sort, returning a full ordered list of nodes.
 
         Raises:
-            DAGCycleError: 图中存在环时抛出。
+            DAGCycleError: raised when the graph contains a cycle.
         """
         in_deg = dict(self._in_degree)
-        # 补充可能遗漏的节点（孤立节点入度为 0）
+        # add possibly missed nodes (isolated nodes have in-degree 0)
         for n in self._nodes:
             in_deg.setdefault(n, 0)
 
@@ -105,21 +105,21 @@ class DAG:
                     queue.append(succ)
 
         if len(result) != len(self._nodes):
-            # 找出环上的节点，便于调试
+            # find the nodes on the cycle, for debugging
             remaining = self._nodes - set(result)
             raise DAGCycleError(
-                f"DAG 中存在环，无法完成拓扑排序。剩余节点: {sorted(remaining)}"
+                f"The DAG contains a cycle, topological sort cannot complete. Remaining nodes: {sorted(remaining)}"
             )
         return result
 
     def get_parallel_groups(self) -> list[list[str]]:
-        """按"执行层"分组，返回可并行执行的节点组。
+        """Group by "execution layer", returning groups of nodes that can run in parallel.
 
-        每一层内的节点之间不存在依赖关系，可被并发调度。
-        层的顺序即为拓扑序的批次。
+        Nodes within a layer have no dependencies on each other and can be scheduled concurrently.
+        The order of layers is the batches of the topological order.
 
         Returns:
-            例如 [["A", "B"], ["C"], ["D"]] 表示 A/B 并行，然后 C，然后 D。
+            e.g. [["A", "B"], ["C"], ["D"]] means A/B in parallel, then C, then D.
         """
         in_deg = dict(self._in_degree)
         for n in self._nodes:
@@ -127,7 +127,7 @@ class DAG:
 
         groups: list[list[str]] = []
         current: list[str] = [n for n in self._nodes if in_deg.get(n, 0) == 0]
-        # 按字典序稳定排序，保证确定性
+        # stable sort in lexical order, to guarantee determinism
         current.sort()
         visited: set[str] = set()
 
@@ -143,13 +143,13 @@ class DAG:
             next_layer.sort()
             current = next_layer
 
-        # 安全检查
+        # safety check
         if sum(len(g) for g in groups) != len(self._nodes):
-            raise DAGCycleError("DAG 中存在环，无法计算并行分组")
+            raise DAGCycleError("The DAG contains a cycle, parallel groups cannot be computed")
         return groups
 
     def to_dict(self) -> dict:
-        """序列化为字典，便于日志和持久化。"""
+        """Serialize to a dict, for logging and persistence."""
         return {
             "nodes": sorted(self._nodes),
             "edges": {k: sorted(v) for k, v in sorted(self._edges.items())},

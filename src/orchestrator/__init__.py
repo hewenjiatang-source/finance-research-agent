@@ -1,8 +1,8 @@
-"""Orchestrator 子包：M1 编排层核心。"""
+"""Orchestrator subpackage: core of the M1 orchestration layer."""
 from __future__ import annotations
 
-# 注意：为避免循环导入，不在 __init__ 中导入 orchestrator.Orchestrator
-# 请直接从子模块导入：
+# Note: to avoid circular imports, orchestrator.Orchestrator is not imported in __init__
+# Import it directly from the submodule:
 #   from orchestrator.schemas import SubTask, RunConfig
 #   from orchestrator.orchestrator import Orchestrator
 #   from orchestrator.agent_pool import AgentPool

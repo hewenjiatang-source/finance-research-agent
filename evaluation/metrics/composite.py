@@ -3,9 +3,9 @@
 """
 evaluation/metrics/composite.py
 ================================================================================
-综合得分计算工具。
+Composite score computation utility.
 
-将规则指标和 Judge 指标聚合为统一的综合得分。
+Aggregates rule-based metrics and Judge metrics into a single composite score.
 ================================================================================
 """
 
@@ -20,15 +20,15 @@ def compute_composite_score(
     weights: dict[str, float] | None = None,
 ) -> dict[str, Any]:
     """
-    综合评分：合并规则指标和 Judge 指标。
+    Composite scoring: combines rule-based metrics and Judge metrics.
 
     Args:
-        rule_metrics: 规则指标字典（如 factual_accuracy, citation_coverage 等）。
-        judge_result: Judge 评分结果（如 LLMJudge.score_single 的返回）。
-        weights: 自定义权重。默认规则指标 60%，Judge 指标 40%。
+        rule_metrics: Dict of rule-based metrics (e.g., factual_accuracy, citation_coverage).
+        judge_result: Judge scoring result (e.g., the return value of LLMJudge.score_single).
+        weights: Custom weights. By default rule-based metrics 60%, Judge metrics 40%.
 
     Returns:
-        包含综合得分、各维度明细的字典。
+        Dict containing the composite score and per-dimension details.
     """
     default_weights = {
         "rule": 0.6,
@@ -38,14 +38,14 @@ def compute_composite_score(
 
     rule_score = 0.0
     if rule_metrics:
-        # 规则指标已经是 0-1 的分数，直接加权平均
+        # Rule-based metrics are already 0-1 scores; take a weighted average directly
         rule_vals = [v for v in rule_metrics.values() if isinstance(v, (int, float))]
         rule_score = sum(rule_vals) / len(rule_vals) if rule_vals else 0.0
 
     judge_score = 0.0
     judge_dims = {}
     if judge_result:
-        # Judge 结果是 0-10 分，归一化到 0-1
+        # Judge results are on a 0-10 scale; normalize to 0-1
         dims = judge_result.get("dimensions", {})
         judge_dims = {
             k: v["score"] / 10.0

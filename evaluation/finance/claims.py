@@ -1,4 +1,4 @@
-"""把 Markdown 报告切成可核对的最小单元（句子 / 表格单元格），并附上引用编号。"""
+"""Split a Markdown report into the smallest checkable units (sentences / table cells) with their citation ids."""
 from __future__ import annotations
 
 import re
@@ -26,7 +26,7 @@ class Unit:
 
 
 def strip_boilerplate(report: str) -> str:
-    """去掉标题行之后的元信息 / 参考来源（它们是系统生成的，不属于模型的断言）。"""
+    """Drop the metadata / reference sections after the body (system-generated, not claims made by the model)."""
     m = _TAIL_HEADINGS.search(report)
     body = report[: m.start()] if m else report
     body = re.sub(r"\n-{3,}\s*$", "", body.rstrip())
@@ -38,7 +38,7 @@ def _split_sentences(line: str) -> list[str]:
     merged: list[str] = []
     for p in parts:
         lead = _LEAD_CITES.match(p)
-        if lead and merged:  # "。[3]" 里的引用属于前一句
+        if lead and merged:  # a citation after "。" (e.g. "。[3]") belongs to the previous sentence
             merged[-1] = merged[-1].rstrip() + " " + lead.group(1).strip()
             p = p[lead.end():]
             if not p.strip():
@@ -54,7 +54,7 @@ def _split_clauses(sentence: str) -> list[str]:
     if len(CITE_RE.findall(sentence)) < 2:
         return [sentence]
     parts = _CLAUSE_SPLIT.split(sentence)
-    # 紧跟在引用后的孤立 "[2]" 引用组不单独成句，已由 lookbehind 避免；这里合并没有数字也没有引用的碎片
+    # a lone "[2]" citation group right after a citation is not its own clause (the lookbehind avoids it); merge fragments with no digits and no citation
     out: list[str] = []
     for p in parts:
         if out and not find_cites(p) and not re.search(r"\d", p):
@@ -94,8 +94,8 @@ def parse_report(report: str) -> list[Unit]:
         text = re.sub(r"^\s*(?:[-*+]|\d+[.)])\s+", "", line).replace("**", "").strip()
         if text and not re.fullmatch(r"[-=_*\s]{3,}", text):
             for s in _split_sentences(text):
-                # 引用作用域 = 引用组之前的文本：句内 "…[1]，…[2]" 拆成两个子句分别核对；
-                # 子句的指标/期间语境仍取整句（mention.sentence）
+                # Citation scope = the text before the citation group: "…[1], …[2]" within a sentence is split into two clauses checked separately;
+                # the clause still takes its metric/period context from the whole sentence (mention.sentence)
                 for clause in _split_clauses(s):
                     units.append(Unit(clause, find_cites(clause), extract_mentions(clause, sentence=s), heading=heading))
         i += 1

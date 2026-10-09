@@ -1,14 +1,14 @@
 """
-M6 自进化引擎 — 多维评分器 (Judge)
+M6 self-evolution engine — multi-dimension scorer (Judge)
 
-Judge 对研究报告进行五维度连续评分，支持 Ensemble（3个不同 prompt 取均值）、
-效率维度规则公式、Reward Shaping 等机制。
+The Judge scores research reports continuously along five dimensions, supporting an Ensemble (mean of 3 different prompts),
+a rule-based efficiency formula, reward shaping and related mechanisms.
 
-设计决策：
-1. Ensemble：3 个不同视角的 prompt 独立评分后取平均，降低单一 prompt bias。
-2. 效率分：纯规则公式（sigmoid 衰减），防止 reward hacking（模型可以通过无意义搜索刷分）。
-3. Reward shaping：将 [0,10] 的复合分映射到 [-1,1]，适配 GRPO 的 clip 范围。
-4. Held-out 校准接口：定期与人工标注对比，暴露漂移。
+Design decisions:
+1. Ensemble: 3 prompts with different viewpoints score independently and are averaged, lowering single-prompt bias.
+2. Efficiency score: a pure rule formula (sigmoid decay) to prevent reward hacking (a model could farm score via pointless searches).
+3. Reward shaping: maps the [0,10] composite score to [-1,1], fitting GRPO's clip range.
+4. Held-out calibration interface: periodically compare with human labels to expose drift.
 """
 from __future__ import annotations
 
@@ -24,59 +24,59 @@ __all__ = ["Judge"]
 
 
 # ============================================================================
-# Prompt 模板 — 3 个 Ensemble 视角
+# Prompt templates — 3 Ensemble viewpoints
 # ============================================================================
 
 SYSTEM_JUDGE = (
-    "你是一位专业的研究报告评审专家。请基于以下五个维度对报告进行评分，"
-    "每个维度 0-10 分。输出必须是严格 JSON 格式。"
+    "You are a professional research-report review expert. Score the report on the following five dimensions, "
+    "each 0-10. Output must be strict JSON."
 )
 
-# 视角 1: 学术严谨型
-PROMPT_JUDGE_1 = """请从【学术严谨】视角评审以下研究报告。
+# Viewpoint 1: academic rigor
+PROMPT_JUDGE_1 = """Review the following research report from the **academic rigor** viewpoint.
 
-评分维度：
-1. factual_accuracy (0-10): 事实准确性，所有 claim 是否有可靠来源支撑。
-2. coverage (0-10): 覆盖度，是否完整回答了 query 的所有子话题。
-3. logical_coherence (0-10): 逻辑性，论证是否严密、无自相矛盾。
-4. citation_quality (0-10): 引用质量，来源是否权威、标注是否规范。
-5. efficiency (0-10): 效率分（由系统规则计算，你只需对前4项评分）。
+Scoring dimensions:
+1. factual_accuracy (0-10): factual accuracy — is every claim backed by a reliable source.
+2. coverage (0-10): coverage — does it fully answer all sub-topics of the query.
+3. logical_coherence (0-10): logic — is the argument tight and free of self-contradiction.
+4. citation_quality (0-10): citation quality — are sources authoritative and citations well formed.
+5. efficiency (0-10): efficiency score (computed by system rules; you only score the first 4).
 
-请按以下 JSON 格式输出（不要有任何额外文字）：
+Output in the following JSON format (no extra text):
 {
   "factual_accuracy": float,
   "coverage": float,
   "logical_coherence": float,
   "citation_quality": float,
-  "rationale": "string"   // 评分理由简述
+  "rationale": "string"   // brief rationale for the scores
 }
 
---- 原始问题 ---
+--- Original question ---
 {query}
 
---- 研究报告 ---
+--- Research report ---
 {content}
 
---- 来源列表 ---
+--- Source list ---
 {sources}
 """
 
-# 视角 2: 实用导向型
-PROMPT_JUDGE_2 = """请从【实用导向】视角评审以下研究报告。
+# Viewpoint 2: practicality-oriented
+PROMPT_JUDGE_2 = """Review the following research report from the **practicality** viewpoint.
 
-关注重点：
-- 报告是否直接回答了用户的问题？
-- 信息对决策是否有实际帮助？
-- 结构是否清晰、易于阅读？
+Focus on:
+- Does the report directly answer the user's question?
+- Is the information actually helpful for decisions?
+- Is the structure clear and easy to read?
 
-评分维度：
+Scoring dimensions:
 1. factual_accuracy (0-10)
 2. coverage (0-10)
 3. logical_coherence (0-10)
 4. citation_quality (0-10)
 5. efficiency (0-10)
 
-请按以下 JSON 格式输出：
+Output in the following JSON format:
 {
   "factual_accuracy": float,
   "coverage": float,
@@ -85,33 +85,33 @@ PROMPT_JUDGE_2 = """请从【实用导向】视角评审以下研究报告。
   "rationale": "string"
 }
 
---- 原始问题 ---
+--- Original question ---
 {query}
 
---- 研究报告 ---
+--- Research report ---
 {content}
 
---- 来源列表 ---
+--- Source list ---
 {sources}
 """
 
-# 视角 3: 批判挑错型
-PROMPT_JUDGE_3 = """请从【批判挑错】视角严格审查以下研究报告。
+# Viewpoint 3: critical fault-finding
+PROMPT_JUDGE_3 = """Strictly review the following research report from the **critical fault-finding** viewpoint.
 
-你的任务是尽可能找出报告的缺陷：
-- 任何无来源支撑的具体数字
-- 任何以偏概全的结论
-- 任何逻辑跳跃
-- 任何遗漏的关键视角
+Your task is to find as many defects in the report as possible:
+- Any specific number without source support
+- Any over-generalized conclusion
+- Any logical leap
+- Any missing key perspective
 
-评分维度（请刻意严格）：
+Scoring dimensions (be deliberately strict):
 1. factual_accuracy (0-10)
 2. coverage (0-10)
 3. logical_coherence (0-10)
 4. citation_quality (0-10)
 5. efficiency (0-10)
 
-请按以下 JSON 格式输出：
+Output in the following JSON format:
 {
   "factual_accuracy": float,
   "coverage": float,
@@ -120,19 +120,19 @@ PROMPT_JUDGE_3 = """请从【批判挑错】视角严格审查以下研究报告
   "rationale": "string"
 }
 
---- 原始问题 ---
+--- Original question ---
 {query}
 
---- 研究报告 ---
+--- Research report ---
 {content}
 
---- 来源列表 ---
+--- Source list ---
 {sources}
 """
 
 JUDGE_PROMPTS = [PROMPT_JUDGE_1, PROMPT_JUDGE_2, PROMPT_JUDGE_3]
 
-# 五维度权重（与项目计划一致）
+# Five dimension weights (consistent with the project plan)
 DIMENSION_WEIGHTS = {
     "factual_accuracy": 0.30,
     "coverage": 0.25,
@@ -143,12 +143,12 @@ DIMENSION_WEIGHTS = {
 
 
 # ============================================================================
-# Judge 实现
+# Judge implementation
 # ============================================================================
 
 @dataclass
 class CalibrationSample:
-    """Held-out 校准样本。"""
+    """Held-out calibration sample."""
     query: str
     report_content: str
     human_scores: dict[str, float]
@@ -156,13 +156,13 @@ class CalibrationSample:
 
 
 class Judge:
-    """多维评分器，支持 Ensemble 和 Reward Shaping。
+    """Multi-dimension scorer supporting Ensemble and reward shaping.
 
     Attributes:
-        policy: VLLMPolicy 实例。
-        ensemble_size: Judge Ensemble 数量（默认 3）。
-        efficiency_optimal: 效率分最优搜索次数。
-        efficiency_scale: 效率分 sigmoid 衰减尺度。
+        policy: a VLLMPolicy instance.
+        ensemble_size: number of Judges in the Ensemble (default 3).
+        efficiency_optimal: optimal number of searches for the efficiency score.
+        efficiency_scale: sigmoid decay scale of the efficiency score.
     """
 
     def __init__(
@@ -176,32 +176,32 @@ class Judge:
         self.ensemble_size = min(max(ensemble_size, 1), len(JUDGE_PROMPTS))
         self.efficiency_optimal = efficiency_optimal
         self.efficiency_scale = efficiency_scale
-        # held-out 校准样本池
+        # held-out calibration sample pool
         self._calibration_pool: list[CalibrationSample] = []
 
     async def evaluate(
         self, report: ResearchReport, query: str | None = None
     ) -> dict[str, float]:
-        """对研究报告进行五维度评分。
+        """Score a research report on five dimensions.
 
-        执行流程：
-        1. 调用 ensemble_size 个不同 prompt 的 Judge。
-        2. 对每个维度取平均值。
-        3. 用规则公式计算 efficiency 分。
-        4. 返回五维评分字典。
+        Flow:
+        1. Call ensemble_size Judges with different prompts.
+        2. Average each dimension.
+        3. Compute the efficiency score with the rule formula.
+        4. Return the five-dimension score dict.
 
         Args:
-            report: 待评分的研究报告。
-            query: 可选的原始问题（默认使用 report.query）。
+            report: the research report to score.
+            query: optional original question (defaults to report.query).
 
         Returns:
-            五维评分字典，键: factual_accuracy / coverage / logical_coherence /
-            citation_quality / efficiency，值范围 [0.0, 10.0]。
+            Five-dimension score dict, keys: factual_accuracy / coverage / logical_coherence /
+            citation_quality / efficiency, values in [0.0, 10.0].
         """
         q = query or report.query
         sources_text = self._format_sources(report.sources)
 
-        # 收集 ensemble 中每个 judge 的评分
+        # Collect each Judge's scores in the ensemble
         dim_lists: dict[str, list[float]] = {
             "factual_accuracy": [],
             "coverage": [],
@@ -229,34 +229,34 @@ class Judge:
                     dim_lists[dim].append(scores.get(dim, 5.0))
                 rationales.append(rationale)
             except Exception as e:
-                # 单个 judge 失败时不中断，用保守分填充
+                # A single Judge failing does not interrupt; fill with a conservative score
                 for dim in dim_lists:
                     dim_lists[dim].append(5.0)
                 rationales.append(f"judge_{i}_error: {e}")
 
-        # 取 ensemble 均值
+        # Take the ensemble mean
         final_scores: dict[str, float] = {}
         for dim, vals in dim_lists.items():
             final_scores[dim] = sum(vals) / len(vals) if vals else 5.0
 
-        # 效率分：规则公式，防止 reward hacking
+        # Efficiency score: rule formula, to prevent reward hacking
         final_scores["efficiency"] = self._compute_efficiency_score(report.num_searches)
 
-        # 记录 rationale 到内部字段（便于调试）
+        # Record the rationale in an internal field (for debugging)
         self._last_rationales = rationales
         return final_scores
 
     def shape_reward(self, scores: dict[str, float]) -> float:
-        """将五维评分转换为 GRPO 可用的单值 reward。
+        """Convert the five-dimension scores into a single-value reward usable by GRPO.
 
-        公式: R_grpo = clip(composite * 2 - 1, -1, 1)
-        其中 composite 是五维度加权平均分，范围 [0, 10]。
+        Formula: R_grpo = clip(composite * 2 - 1, -1, 1)
+        where composite is the weighted mean of the five dimensions, in [0, 10].
 
         Args:
-            scores: evaluate() 返回的五维评分字典。
+            scores: the five-dimension score dict returned by evaluate().
 
         Returns:
-            单值 reward，范围 [-1.0, 1.0]。
+            Single-value reward in [-1.0, 1.0].
         """
         composite = 0.0
         weight_sum = 0.0
@@ -269,21 +269,21 @@ class Judge:
         else:
             composite /= weight_sum
 
-        # 映射到 [-1, 1]
+        # Map to [-1, 1]
         r = composite * 2.0 - 1.0
         return max(-1.0, min(1.0, r))
 
     def _compute_efficiency_score(self, num_searches: int) -> float:
-        """计算效率分：sigmoid 衰减。
+        """Compute the efficiency score: sigmoid decay.
 
-        公式: score = 10.0 / (1.0 + exp((num_searches - optimal) / scale))
-        搜索次数越接近 optimal，分数越高；过度搜索会显著扣分。
+        Formula: score = 10.0 / (1.0 + exp((num_searches - optimal) / scale))
+        The closer the search count is to optimal, the higher the score; excessive searching is penalized significantly.
 
         Args:
-            num_searches: 实际搜索次数。
+            num_searches: actual number of searches.
 
         Returns:
-            效率分，范围 (0.0, 10.0]。
+            Efficiency score in (0.0, 10.0].
         """
         exp_term = math.exp((num_searches - self.efficiency_optimal) / self.efficiency_scale)
         score = 10.0 / (1.0 + exp_term)
@@ -292,12 +292,12 @@ class Judge:
     def add_calibration_sample(
         self, query: str, report_content: str, human_scores: dict[str, float]
     ) -> None:
-        """添加 held-out 校准样本。
+        """Add a held-out calibration sample.
 
         Args:
-            query: 研究问题。
-            report_content: 报告正文。
-            human_scores: 人工标注的五维分数。
+            query: research question.
+            report_content: report body.
+            human_scores: human-labelled five-dimension scores.
         """
         self._calibration_pool.append(
             CalibrationSample(
@@ -308,10 +308,10 @@ class Judge:
         )
 
     def calibrate(self) -> dict[str, float]:
-        """执行 held-out 校准：对比模型评分与人工标注。
+        """Run held-out calibration: compare model scores with human labels.
 
         Returns:
-            校准指标字典，包含各维度的平均绝对误差 (MAE) 和整体相关系数。
+            Calibration metrics dict, containing per-dimension mean absolute error (MAE) and overall correlation.
         """
         if not self._calibration_pool:
             return {"status": "no_samples"}
@@ -324,8 +324,8 @@ class Judge:
             "efficiency": [],
         }
 
-        # 由于 calibrate 是同步方法，这里仅对比已有 model_scores
-        # 若 model_scores 为 None，说明尚未评估，需要外部先调用 evaluate 填充
+        # calibrate is a synchronous method, so only the existing model_scores are compared here
+        # If model_scores is None it has not been evaluated yet; the caller must call evaluate first to fill it
         for sample in self._calibration_pool:
             if sample.model_scores is None:
                 continue
@@ -339,40 +339,40 @@ class Judge:
             if errs:
                 result[f"{dim}_mae"] = sum(errs) / len(errs)
             else:
-                result[f"{dim}_mae"] = -1.0  # 标记为未计算
+                result[f"{dim}_mae"] = -1.0  # mark as not computed
 
         result["sample_count"] = float(len(self._calibration_pool))
         return result
 
     def update_model_scores_for_calibration(self, idx: int, model_scores: dict[str, float]) -> None:
-        """为指定索引的校准样本更新模型评分。
+        """Update the model scores for the calibration sample at the given index.
 
         Args:
-            idx: 校准样本索引。
-            model_scores: 模型给出的五维分数。
+            idx: calibration sample index.
+            model_scores: five-dimension scores given by the model.
         """
         if 0 <= idx < len(self._calibration_pool):
             self._calibration_pool[idx].model_scores = model_scores
 
     def _format_sources(self, sources: list[dict]) -> str:
         if not sources:
-            return "（无来源）"
+            return "(no sources)"
         lines = []
         for i, s in enumerate(sources, 1):
-            title = s.get("title", "未知标题")
+            title = s.get("title", "Unknown title")
             url = s.get("url", "")
             lines.append(f"[{i}] {title} ({url})")
         return "\n".join(lines)
 
     def _parse_judge_output(self, raw: str) -> tuple[dict[str, float], str]:
-        """解析 Judge 的 JSON 输出。"""
+        """Parse the Judge's JSON output."""
         raw = raw.strip()
         if not raw:
             return {}, ""
 
         import re
 
-        # 尝试提取 JSON 块
+        # Try to extract the JSON block
         candidates = [raw]
         code_match = re.compile(r"```(?:json)?\s*(.*?)\s*```", re.DOTALL)
         candidates.extend(code_match.findall(raw))

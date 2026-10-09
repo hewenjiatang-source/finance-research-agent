@@ -1,13 +1,13 @@
 """
-M5 Red-Blue 对抗降噪循环 — 主控制器
+M5 Red-Blue adversarial denoising loop — main controller
 
-AdversarialLoop 驱动 Red Agent → Blue Agent → 评分的完整对抗流程，
-具备死循环检测、震荡检测、收敛判断等鲁棒机制。
+AdversarialLoop drives the full adversarial flow Red Agent -> Blue Agent -> scoring,
+with robust mechanisms for dead-loop detection, oscillation detection and convergence checks.
 
-设计决策：
-1. 维护 resolved_issues 集合：已修复的 issue 如果在新轮次中重新出现，判定为震荡。
-2. 收敛条件三选一：round >= 3 / overall >= 8.0 / Δscore < 0.3。
-3. 每轮记录完整评分历史，便于后续分析和审计。
+Design decisions:
+1. Maintain a resolved_issues set: an issue that was fixed but reappears in a later round is treated as oscillation.
+2. Any one of three convergence conditions: round >= 3 / overall >= 8.0 / Δscore < 0.3.
+3. The full score history is recorded each round for later analysis and auditing.
 """
 from __future__ import annotations
 
@@ -34,15 +34,15 @@ logger = logging.getLogger(__name__)
 
 
 class AdversarialLoop:
-    """Red-Blue 对抗降噪循环主控制器。
+    """Main controller of the Red-Blue adversarial denoising loop.
 
     Attributes:
-        red_agent: Red Agent 实例，负责攻击。
-        blue_agent: Blue Agent 实例，负责修复。
-        policy: 用于 self_verify 或辅助评分的策略对象（可选）。
-        max_rounds: 硬上限轮数。
-        score_threshold: 综合分达标阈值。
-        delta_threshold: 轮间变化量收敛阈值。
+        red_agent: Red Agent instance, responsible for attacking.
+        blue_agent: Blue Agent instance, responsible for fixing.
+        policy: policy object used for self_verify or auxiliary scoring (optional).
+        max_rounds: hard cap on the number of rounds.
+        score_threshold: overall-score threshold for success.
+        delta_threshold: convergence threshold on the between-round change.
     """
 
     def __init__(
@@ -65,27 +65,27 @@ class AdversarialLoop:
     async def run(
         self, report: ResearchReport
     ) -> tuple[ResearchReport, list[dict[str, Any]]]:
-        """运行完整的对抗降噪循环。
+        """Run the full adversarial denoising loop.
 
-        流程：
-        1. 每轮用 Red Agent 攻击当前报告。
-        2. Blue Agent 根据 Verdict 修复。
-        3. 记录本轮评分和修复操作。
-        4. 检查收敛条件或震荡/死循环。
-        5. 返回最终报告和完整历史。
+        Flow:
+        1. Each round the Red Agent attacks the current report.
+        2. The Blue Agent fixes it according to the Verdict.
+        3. Record this round's scores and fix operations.
+        4. Check convergence conditions or oscillation / dead loops.
+        5. Return the final report and the full history.
 
         Args:
-            report: 初始研究报告（不会被修改，内部深拷贝）。
+            report: initial research report (not modified; deep-copied internally).
 
         Returns:
-            (修复后的报告, 每轮评分记录列表)
-            每轮记录包含: round, dimension_scores, overall_score, delta, issues_count,
+            (fixed report, list of per-round score records)
+            Each record contains: round, dimension_scores, overall_score, delta, issues_count,
             fix_operations, resolved_count, oscillation_detected, stop_reason
         """
         current = copy.deepcopy(report)
         history: list[dict[str, Any]] = []
         prev_scores: dict[Dimension, float] | None = None
-        resolved_issues: set[Issue] = set()  # 已修复的 issue 集合
+        resolved_issues: set[Issue] = set()  # set of fixed issues
         oscillation_detected = False
         stop_reason = ""
 
@@ -99,8 +99,8 @@ class AdversarialLoop:
                 f"issues={len(verdict.issues)}"
             )
 
-            # ---- Step 2: 震荡检测 ----
-            # 如果当前 issues 中有已修复过的 issue 重新出现，判定震荡
+            # ---- Step 2: oscillation detection ----
+            # If a previously fixed issue reappears among the current issues, treat it as oscillation
             reappeared = resolved_issues.intersection(set(verdict.issues))
             if reappeared:
                 oscillation_detected = True
@@ -120,18 +120,18 @@ class AdversarialLoop:
                 f"[AdversarialLoop] Blue defend done: operations={len(operations)}"
             )
 
-            # 将本轮被修复的 issues 加入 resolved 集合
+            # Add the issues fixed this round to the resolved set
             for op in operations:
                 if op.success:
                     resolved_issues.add(op.issue)
 
-            # ---- Step 4: 计算 delta ----
+            # ---- Step 4: compute delta ----
             delta = 0.0
             if prev_scores is not None:
                 delta = VerdictEngine.compute_delta(prev_scores, verdict.dimension_scores)
             prev_scores = copy.deepcopy(verdict.dimension_scores)
 
-            # ---- Step 5: 记录本轮 ----
+            # ---- Step 5: record this round ----
             stop_reason = self._check_convergence(round_idx, verdict.overall_score, delta)
             record = self._build_round_record(
                 round_idx=round_idx,
@@ -143,16 +143,16 @@ class AdversarialLoop:
             )
             history.append(record)
 
-            # 更新当前报告为修复后的版本
+            # Update the current report to the fixed version
             current = fixed_report
             current.adversarial_rounds = round_idx
 
-            # ---- Step 6: 判断是否停止 ----
+            # ---- Step 6: decide whether to stop ----
             if stop_reason:
                 logger.info(f"[AdversarialLoop] Stopping: {stop_reason}")
                 break
 
-        # 循环结束后写入最终分数
+        # Write the final scores after the loop ends
         if history:
             current.final_score = history[-1]["overall_score"]
 
@@ -161,16 +161,16 @@ class AdversarialLoop:
     def _check_convergence(
         self, round_idx: int, overall_score: float, delta: float
     ) -> str:
-        """检查是否满足任一收敛条件。
+        """Check whether any convergence condition is met.
 
         Returns:
-            空字符串表示继续；非空字符串为停止原因。
+            Empty string means continue; a non-empty string is the stop reason.
         """
         if round_idx >= self.max_rounds:
             return f"max_rounds_reached({self.max_rounds})"
         if overall_score >= self.score_threshold:
             return f"score_threshold_met({overall_score:.2f}>={self.score_threshold})"
-        # 第一轮没有上一轮做对比，delta 恒为 0，跳过 delta 收敛检测
+        # The first round has no previous round to compare against, so delta is always 0; skip delta convergence check
         if round_idx > 1 and delta < self.delta_threshold:
             return f"delta_converged({delta:.3f}<{self.delta_threshold})"
         return ""
@@ -184,7 +184,7 @@ class AdversarialLoop:
         oscillation: bool,
         stop_reason: str,
     ) -> dict[str, Any]:
-        """构造单轮记录字典。"""
+        """Build a single-round record dict."""
         return {
             "round": round_idx,
             "dimension_scores": {

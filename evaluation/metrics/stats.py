@@ -3,9 +3,9 @@
 """
 evaluation/metrics/stats.py
 ================================================================================
-统计显著性检验工具：bootstrap 置信区间、效应量、配对 t 检验。
+Statistical significance testing utilities: bootstrap confidence intervals, effect sizes, paired t-test.
 
-适用于小样本消融实验和 head-to-head benchmark 的统计严谨性验证。
+For validating the statistical rigor of small-sample ablation experiments and head-to-head benchmarks.
 ================================================================================
 """
 
@@ -23,12 +23,12 @@ def bootstrap_ci_paired(
     confidence: float = 0.95,
 ) -> dict[str, Any]:
     """
-    配对差异的 bootstrap 置信区间。
+    Bootstrap confidence interval for paired differences.
 
     Args:
-        diffs: 配对差异列表（如 full_score - no_adv_score）
-        n_bootstrap: bootstrap 采样次数
-        confidence: 置信水平
+        diffs: List of paired differences (e.g., full_score - no_adv_score)
+        n_bootstrap: Number of bootstrap resamples
+        confidence: Confidence level
 
     Returns:
         dict with mean_diff, ci_lower, ci_upper, p_value, significant
@@ -57,7 +57,7 @@ def bootstrap_ci_paired(
         "ci_lower": round(ci_lower, 4),
         "ci_upper": round(ci_upper, 4),
         "p_value": round(p_value, 4),
-        "significant": ci_lower > 0,  # 95% CI 完全在 0 右侧
+        "significant": ci_lower > 0,  # 95% CI lies entirely to the right of 0
         "n": len(diffs),
     }
 
@@ -69,11 +69,11 @@ def bootstrap_ci_two_sample(
     confidence: float = 0.95,
 ) -> dict[str, Any]:
     """
-    两组独立样本的 bootstrap 置信区间（非配对）。
+    Bootstrap confidence interval for two independent samples (unpaired).
 
     Args:
-        scores_a: 系统 A 的分数列表
-        scores_b: 系统 B 的分数列表
+        scores_a: List of scores for system A
+        scores_b: List of scores for system B
     """
     if not scores_a or not scores_b:
         return {"mean_diff": 0.0, "ci_lower": 0.0, "ci_upper": 0.0, "p_value": 1.0, "significant": False}
@@ -106,7 +106,7 @@ def bootstrap_ci_two_sample(
 
 
 def cohens_d(scores_a: list[float], scores_b: list[float]) -> float:
-    """计算 Cohen's d 效应量。"""
+    """Compute the Cohen's d effect size."""
     a_arr = np.array(scores_a)
     b_arr = np.array(scores_b)
     pooled_std = math.sqrt((np.var(a_arr, ddof=1) + np.var(b_arr, ddof=1)) / 2)
@@ -116,7 +116,7 @@ def cohens_d(scores_a: list[float], scores_b: list[float]) -> float:
 
 
 def paired_t_test(scores_a: list[float], scores_b: list[float]) -> dict[str, Any]:
-    """配对 t 检验（假设正态分布）。作为 bootstrap 的补充。"""
+    """Paired t-test (assumes a normal distribution). Complements the bootstrap."""
     try:
         from scipy import stats
         diffs = np.array(scores_a) - np.array(scores_b)
@@ -128,5 +128,5 @@ def paired_t_test(scores_a: list[float], scores_b: list[float]) -> dict[str, Any
             "n": len(diffs),
         }
     except ImportError:
-        # 无 scipy 时退化为 bootstrap
+        # Fall back to bootstrap when scipy is unavailable
         return bootstrap_ci_paired([a - b for a, b in zip(scores_a, scores_b)])

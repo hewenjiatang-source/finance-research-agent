@@ -1,12 +1,12 @@
 """
-M5 Blue Agent — 修复与防御器
+M5 Blue Agent — fixer and defender
 
-Blue Agent 接收 Red Agent 的 Verdict，按优先级排序并执行三类修复：
-1. In-place Fix：数字/日期与 source 不一致 → 直接替换
-2. Supplementary Search：unsourced claims → 触发新搜索
-3. Removal：高置信幻觉 → 删除段落
+The Blue Agent receives the Red Agent's Verdict, sorts issues by priority and performs three kinds of fixes:
+1. In-place Fix: numbers/dates inconsistent with the source -> replace directly
+2. Supplementary Search: unsourced claims -> trigger a new search
+3. Removal: high-confidence hallucinations -> delete the paragraph
 
-修复后执行 self_verify，确保不引入新矛盾。
+After fixing it runs self_verify to make sure no new contradictions are introduced.
 """
 from __future__ import annotations
 
@@ -29,17 +29,17 @@ __all__ = ["BlueAgent"]
 
 
 # ============================================================================
-# Prompt 模板
+# Prompt templates
 # ============================================================================
 
 SYSTEM_BLUE_AGENT = (
-    "你是一位严谨的研究报告修订员（Blue Agent）。你的任务是根据审查意见修复研究报告，"
-    "确保所有修改都有据可依，不引入新错误。输出必须是 JSON 格式。"
+    "You are a rigorous research-report reviser (the Blue Agent). Your task is to fix the research report according to the review comments, "
+    "making sure every change is well-founded and introduces no new errors. Output must be JSON."
 )
 
-PROMPT_SELF_VERIFY = """请验证以下修复后的研究报告是否存在新引入的矛盾或错误。
+PROMPT_SELF_VERIFY = """Verify whether the following fixed research report introduces any new contradictions or errors.
 
-请按以下 JSON 格式输出：
+Output in the following JSON format:
 {
   "has_new_issue": bool,
   "new_issues": [
@@ -51,28 +51,28 @@ PROMPT_SELF_VERIFY = """请验证以下修复后的研究报告是否存在新�
   ]
 }
 
---- 原始报告 ---
+--- Original report ---
 {original}
 
---- 修复后报告 ---
+--- Fixed report ---
 {revised}
 
---- 已执行的修复 ---
+--- Fixes performed ---
 {fixes}
 """
 
-PROMPT_IN_PLACE_FIX = """请根据以下审查意见，对研究报告进行【原地修正】。
+PROMPT_IN_PLACE_FIX = """Based on the following review comments, make an **in-place correction** to the research report.
 
-要求：
-1. 仅修改与 source 不一致的具体数字、日期、名字等事实性内容。
-2. 保持原文结构和叙述风格不变。
-3. 所有修改必须基于提供的 sources，不能引入新信息。
-4. 输出修正后的完整段落。
+Requirements:
+1. Only change factual content such as specific numbers, dates and names that disagree with the sources.
+2. Keep the original structure and narrative style unchanged.
+3. Every change must be based on the provided sources; do not introduce new information.
+4. Output the complete corrected passage.
 
-请按以下 JSON 格式输出：
+Output in the following JSON format:
 {
-  "fixed_content": "string",   // 修正后的报告全文
-  "changes": [                 // 变更记录列表
+  "fixed_content": "string",   // full text of the corrected report
+  "changes": [                 // list of change records
     {
       "location": "string",
       "before": "string",
@@ -81,24 +81,24 @@ PROMPT_IN_PLACE_FIX = """请根据以下审查意见，对研究报告进行【�
   ]
 }
 
---- 审查意见 ---
+--- Review comments ---
 {issue_desc}
 
---- 原始报告 ---
+--- Original report ---
 {content}
 
---- 来源 ---
+--- Sources ---
 {sources}
 """
 
-PROMPT_SUPPLEMENTARY_SEARCH = """请根据以下审查意见，对研究报告进行【补充搜索后修正】。
+PROMPT_SUPPLEMENTARY_SEARCH = """Based on the following review comments, **correct the research report after supplementary search**.
 
-要求：
-1. 对无 source 支撑的 claim，使用搜索结果补充证据。
-2. 如果搜索结果无法证实，则删除该 claim 或标注为"未经证实"。
-3. 输出修正后的完整报告。
+Requirements:
+1. For claims without source support, use the search results to add evidence.
+2. If the search results cannot confirm a claim, delete it or mark it as "unverified".
+3. Output the complete corrected report.
 
-请按以下 JSON 格式输出：
+Output in the following JSON format:
 {
   "fixed_content": "string",
   "changes": [
@@ -110,24 +110,24 @@ PROMPT_SUPPLEMENTARY_SEARCH = """请根据以下审查意见，对研究报告�
   ]
 }
 
---- 审查意见 ---
+--- Review comments ---
 {issue_desc}
 
---- 原始报告 ---
+--- Original report ---
 {content}
 
---- 搜索结果 ---
+--- Search results ---
 {search_results}
 """
 
-PROMPT_REMOVAL = """请根据以下审查意见，对研究报告进行【移除修正】。
+PROMPT_REMOVAL = """Based on the following review comments, make a **removal correction** to the research report.
 
-要求：
-1. 删除高置信度幻觉段落或无法验证的 claim。
-2. 删除后确保上下文连贯，必要时添加过渡句。
-3. 输出修正后的完整报告。
+Requirements:
+1. Delete high-confidence hallucinated paragraphs or claims that cannot be verified.
+2. After deletion make sure the context stays coherent, adding transition sentences if needed.
+3. Output the complete corrected report.
 
-请按以下 JSON 格式输出：
+Output in the following JSON format:
 {
   "fixed_content": "string",
   "removed_segments": [
@@ -139,25 +139,25 @@ PROMPT_REMOVAL = """请根据以下审查意见，对研究报告进行【移除
   ]
 }
 
---- 审查意见 ---
+--- Review comments ---
 {issue_desc}
 
---- 原始报告 ---
+--- Original report ---
 {content}
 """
 
 
 # ============================================================================
-# Blue Agent 实现
+# Blue Agent implementation
 # ============================================================================
 
 class BlueAgent:
-    """Blue Agent — 修复与防御器。
+    """Blue Agent — fixer and defender.
 
     Attributes:
-        policy: VLLMPolicy 实例。
-        tools: 可用工具列表，至少包含搜索工具用于 supplementary_search。
-        max_tokens: 单次修复调用的最大输出 token。
+        policy: a VLLMPolicy instance.
+        tools: list of available tools, at least including a search tool for supplementary_search.
+        max_tokens: maximum output tokens for a single fix call.
     """
 
     def __init__(
@@ -172,16 +172,16 @@ class BlueAgent:
         self.policy = policy
         self.tools = tools or []
         self.max_tokens = max_tokens
-        # 送给模型修复的报告最大字符数。注意：修复结果只对应被送审的前 N 字符，
-        # 因此写回时会与原文剩余部分拼接（见 _merge_fixed），不会再把长报告截断覆盖。
+        # Maximum report characters sent to the model for fixing. Note: the fix only covers the first N characters sent,
+        # so it is concatenated with the rest of the original on write-back (see _merge_fixed) and never overwrites a long report with a truncated one.
         self.max_report_chars = max_report_chars
         self.max_sources = max_sources
         self.system_prompt = SYSTEM_BLUE_AGENT + (("\n\n" + extra_system) if extra_system else "")
-        # 缓存搜索工具
+        # Cache the search tool
         self._search_tool = self._find_search_tool()
 
     def _find_search_tool(self) -> Any | None:
-        """从 tools 列表中查找搜索工具。"""
+        """Find the search tool in the tools list."""
         for t in self.tools:
             name = getattr(t, "name", "")
             if "search" in name.lower():
@@ -192,17 +192,17 @@ class BlueAgent:
     async def defend(
         self, report: ResearchReport, verdict: RedVerdict
     ) -> tuple[ResearchReport, list[FixOperation]]:
-        """根据 Red Verdict 修复研究报告。
+        """Fix the research report according to the Red Verdict.
 
-        执行流程：
-        1. 按优先级对 issues 排序。
-        2. 逐个执行修复（in_place / search / removal）。
-        3. 每轮修复后执行 self_verify，检测是否引入新问题。
-        4. 返回修复后的报告和所有 FixOperation 记录。
+        Flow:
+        1. Sort issues by priority.
+        2. Perform fixes one by one (in_place / search / removal).
+        3. Run self_verify after each round of fixes to detect newly introduced problems.
+        4. Return the fixed report and all FixOperation records.
 
         Args:
-            report: 原始研究报告（不会被修改，内部深拷贝）。
-            verdict: Red Agent 的审查结果。
+            report: original research report (not modified; deep-copied internally).
+            verdict: the Red Agent's review result.
 
         Returns:
             (fixed_report, fix_operations)
@@ -213,7 +213,7 @@ class BlueAgent:
         if not verdict.issues:
             return current, operations
 
-        # 按优先级降序排序
+        # Sort by priority, descending
         sorted_issues = sorted(
             verdict.issues,
             key=lambda issue: VerdictEngine.compute_priority(issue),
@@ -226,12 +226,12 @@ class BlueAgent:
             op = await self._fix_single_issue(current, issue)
             operations.append(op)
 
-            # self_verify：检查修复是否引入新矛盾
+            # self_verify: check whether the fix introduced new contradictions
             verify_pass, verify_issues = await self._self_verify(
                 original_content, current.content, operations
             )
             if not verify_pass:
-                # 引入新问题：记录但继续（优先处理高优先级 issue，避免死锁）
+                # New problem introduced: record it but continue (handle high-priority issues first to avoid deadlock)
                 for vi in verify_issues:
                     operations.append(
                         FixOperation(
@@ -247,7 +247,7 @@ class BlueAgent:
     async def _fix_single_issue(
         self, report: ResearchReport, issue: Issue
     ) -> FixOperation:
-        """对单个 Issue 执行修复。"""
+        """Perform the fix for a single Issue."""
         old_max = getattr(self.policy, "max_tokens", None)
         if old_max is not None:
             self.policy.max_tokens = self.max_tokens
@@ -264,7 +264,7 @@ class BlueAgent:
                     issue=issue,
                     action="unknown_fix_type",
                     success=False,
-                    detail=f"未知的 fix_type: {issue.fix_type}",
+                    detail=f"Unknown fix_type: {issue.fix_type}",
                 )
         finally:
             if old_max is not None:
@@ -275,7 +275,7 @@ class BlueAgent:
     async def _do_in_place_fix(
         self, report: ResearchReport, issue: Issue
     ) -> FixOperation:
-        """执行原地修正。"""
+        """Perform an in-place correction."""
         prompt = PROMPT_IN_PLACE_FIX
         prompt = prompt.replace("{issue_desc}", issue.description)
         prompt = prompt.replace("{content}", self._truncate_content(report.content))
@@ -306,11 +306,11 @@ class BlueAgent:
     async def _do_supplementary_search(
         self, report: ResearchReport, issue: Issue
     ) -> FixOperation:
-        """执行补充搜索后修正。"""
+        """Perform a correction after supplementary search."""
         search_results = ""
         if self._search_tool is not None:
             try:
-                # 假设搜索工具有 async execute 或同步 execute 接口
+                # Assume the search tool has an async execute or a synchronous execute interface
                 query = issue.description
                 if hasattr(self._search_tool, "execute"):
                     if hasattr(self._search_tool.execute, "__call__"):
@@ -323,16 +323,16 @@ class BlueAgent:
                         sr = None
                 else:
                     sr = None
-                search_results = str(sr) if sr else "（搜索工具未返回结果）"
+                search_results = str(sr) if sr else "(the search tool returned no results)"
             except Exception as e:
-                search_results = f"（搜索失败: {e}）"
+                search_results = f"(search failed: {e})"
         else:
-            search_results = "（无可用搜索工具）"
+            search_results = "(no search tool available)"
 
         prompt = PROMPT_SUPPLEMENTARY_SEARCH
         prompt = prompt.replace("{issue_desc}", issue.description)
         prompt = prompt.replace("{content}", self._truncate_content(report.content))
-        # 截断搜索结果避免膨胀
+        # Truncate search results to avoid bloat
         search_results = search_results[:2000] if len(search_results) > 2000 else search_results
         prompt = prompt.replace("{search_results}", search_results)
         messages = [
@@ -361,7 +361,7 @@ class BlueAgent:
     async def _do_removal(
         self, report: ResearchReport, issue: Issue
     ) -> FixOperation:
-        """执行移除修正。"""
+        """Perform a removal correction."""
         prompt = PROMPT_REMOVAL
         prompt = prompt.replace("{issue_desc}", issue.description)
         prompt = prompt.replace("{content}", self._truncate_content(report.content))
@@ -391,17 +391,17 @@ class BlueAgent:
     async def _self_verify(
         self, original: str, revised: str, operations: list[FixOperation]
     ) -> tuple[bool, list[Issue]]:
-        """修复后自验证，检查是否引入新矛盾。
+        """Self-verify after fixing, checking whether new contradictions were introduced.
 
         Returns:
-            (是否通过, 新发现的 issues 列表)
+            (whether it passed, list of newly found issues)
         """
         if not revised or revised == original:
             return True, []
 
         fixes_text = "\n".join(
             f"- [{op.issue.dimension.value}] {op.action}: {op.detail[:200]}"
-            for op in operations[-5:]  # 只取最近5条，避免 prompt 过长
+            for op in operations[-5:]  # only the latest 5, to keep the prompt short
         )
         prompt = PROMPT_SELF_VERIFY
         prompt = prompt.replace("{original}", original[:2000])
@@ -432,51 +432,51 @@ class BlueAgent:
                 )
             return not has_new, new_issues
         except Exception:
-            # self_verify 解析失败视为通过，避免阻塞修复流程
+            # A self_verify parse failure counts as a pass, to avoid blocking the fix flow
             return True, []
 
     def _format_sources(self, sources: list[dict], max_items: int = 15) -> str:
-        """格式化来源列表，截断以避免上下文膨胀。
+        """Format the source list, truncated to avoid context bloat.
 
-        来源带稳定 ``id``（证据账本）时使用该 id 作为编号，保证与报告里的 [n] 一致；
-        否则退回按位置编号（原行为）。
+        When a source carries a stable ``id`` (evidence ledger), that id is used as its number so it matches the [n] in the report;
+        otherwise fall back to positional numbering (the original behavior).
         """
         if not sources:
-            return "（无来源）"
+            return "(no sources)"
         lines = []
         for i, s in enumerate(sources[:max_items], 1):
-            title = s.get("title", "未知标题")
+            title = s.get("title", "Unknown title")
             url = s.get("url", "")
             snippet = s.get("snippet", "")[:300]
             lines.append(f"[{s.get('id', i)}] {title}\nURL: {url}\nSnippet: {snippet}\n")
         if len(sources) > max_items:
-            lines.append(f"... 还有 {len(sources) - max_items} 个来源未显示")
+            lines.append(f"... {len(sources) - max_items} more sources not shown")
         return "\n".join(lines)
 
     def _truncate_content(self, content: str, max_len: int | None = None) -> str:
-        """截断报告内容，避免 prompt 过长。"""
+        """Truncate report content to keep the prompt from getting too long."""
         max_len = max_len or self.max_report_chars
         if len(content) <= max_len:
             return content
-        return content[:max_len] + "\n\n[报告已截断，仅显示前 {} 字符]".format(max_len)
+        return content[:max_len] + "\n\n[Report truncated; only the first {} characters are shown]".format(max_len)
 
     def _merge_fixed(self, original: str, fixed: str) -> str:
-        """把模型返回的修复结果写回报告。
+        """Write the model's fix result back into the report.
 
-        若原报告超过 max_report_chars，模型只看到了开头部分，它返回的 fixed_content
-        也只对应开头——直接覆盖会丢掉后半篇报告。这里去掉模型可能回显的截断提示，
-        再拼回原文剩余部分。
+        If the original report exceeds max_report_chars, the model only saw the beginning, and the fixed_content it returns
+        also covers only the beginning — overwriting directly would drop the second half. Here we strip any truncation notice the model may have echoed,
+        then append the remainder of the original.
         """
         n = self.max_report_chars
         if len(original) <= n:
             return fixed
         import re as _re
 
-        fixed = _re.sub(r"\n*\[报告已截断[^\]]*\]\s*$", "", fixed.rstrip())
+        fixed = _re.sub(r"\n*\[Report truncated[^\]]*\]\s*$", "", fixed.rstrip())
         return fixed + original[n:]
 
     def _parse_fix_json(self, raw: str) -> tuple[str, list[dict]]:
-        """解析 in_place / search 修复的 JSON 输出。"""
+        """Parse the JSON output of in_place / search fixes."""
         import json
         import re
 
@@ -505,7 +505,7 @@ class BlueAgent:
         return "", []
 
     def _parse_removal_json(self, raw: str) -> tuple[str, list[dict]]:
-        """解析 removal 修复的 JSON 输出。"""
+        """Parse the JSON output of removal fixes."""
         import json
         import re
 

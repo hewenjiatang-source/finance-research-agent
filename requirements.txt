@@ -1,105 +1,105 @@
 # =============================================================================
-# DeepResearch Agent — 完整依赖清单
+# DeepResearch Agent — Full dependency list
 # =============================================================================
-# 安装方式：
-#   pip install -r requirements.txt              # 仅核心依赖
-#   pip install -r requirements.txt[train]       # 核心 + 训练依赖
-#   pip install -r requirements.txt[serve]       # 核心 + vLLM 推理服务
-#   pip install -r requirements.txt[dev]         # 核心 + 开发工具
-#   pip install -r requirements.txt[all]         # 全部依赖
+# Installation:
+#   pip install -r requirements.txt              # core dependencies only
+#   pip install -r requirements.txt[train]       # core + training dependencies
+#   pip install -r requirements.txt[serve]       # core + vLLM inference service
+#   pip install -r requirements.txt[dev]         # core + development tools
+#   pip install -r requirements.txt[all]         # all dependencies
 #
-# 注意：
-#   1. verl 框架为项目一/项目二本地依赖，不在 PyPI 上，
-#      需通过 PYTHONPATH 引入或使用 pip install -e . 安装。
-#   2. 若使用本地 vLLM 服务，需确保 CUDA 环境正确配置。
+# Notes:
+#   1. The verl framework is a local dependency of project one/two and is not on PyPI;
+#      add it via PYTHONPATH or install it with pip install -e .
+#   2. If using a local vLLM service, make sure the CUDA environment is configured correctly.
 # =============================================================================
 
 # ---------------------------------------------------------------------------
-# 核心依赖（必须安装）
+# Core dependencies (required)
 # ---------------------------------------------------------------------------
 
-# LLM 客户端：Anthropic Claude（默认后端）
+# LLM client: Anthropic Claude (default backend)
 anthropic>=0.40.0
 
-# 可选：OpenAI 兼容后端（DeepSeek / vLLM / OpenAI），仅在 backend_mapping 使用它们时才需要
+# Optional: OpenAI-compatible backends (DeepSeek / vLLM / OpenAI); only needed when used in backend_mapping
 # openai>=1.0
 
-# HuggingFace 生态：Tokenizer、模型加载
+# HuggingFace ecosystem: tokenizer, model loading
 transformers>=4.40
 
-# 深度学习框架
-# 注意：若使用 CUDA，请根据 CUDA 版本安装对应 torch
-# 例如：pip install torch --index-url https://download.pytorch.org/whl/cu121
+# Deep learning framework
+# Note: if using CUDA, install the torch build matching your CUDA version
+# For example: pip install torch --index-url https://download.pytorch.org/whl/cu121
 torch>=2.0
 
-# 科学计算
+# Scientific computing
 numpy>=1.24
 
-# 异步 HTTP 客户端（工具层搜索、ArXiv API 调用）
+# Async HTTP client (tool-layer search, ArXiv API calls)
 aiohttp>=3.8
 
-# YAML 配置解析
+# YAML configuration parsing
 pyyaml>=6.0
 
-# .env 环境变量管理（多后端 API Key 配置）
+# .env environment variable management (multi-backend API key configuration)
 python-dotenv>=1.0
 
-# LangSmith 追踪与可观测性（Agent 流程可视化，可选但强烈推荐）
+# LangSmith tracing and observability (agent flow visualization; optional but strongly recommended)
 langsmith>=0.1.0
 
-# 文本向量化（M4 记忆嵌入 + M3 相关性过滤）
+# Text embedding (M4 memory embedding + M3 relevance filtering)
 sentence-transformers>=2.5
 
-# 图算法（M3 TextRank 关键句提取）
+# Graph algorithms (M3 TextRank key-sentence extraction)
 networkx>=3.0
 
-# 机器学习工具（M3 相似度计算、评测指标）
+# Machine learning tools (M3 similarity computation, evaluation metrics)
 scikit-learn>=1.3
 
-# 进度条
+# Progress bars
 tqdm>=4.65
 
-# HuggingFace 数据集（评测数据加载）
+# HuggingFace datasets (evaluation data loading)
 datasets>=2.14
 
-# 数据处理
+# Data processing
 pandas>=2.0
 
-# 可视化（消融实验图表、评测报告）
+# Visualization (ablation charts, evaluation reports)
 matplotlib>=3.7
 
 # ---------------------------------------------------------------------------
-# 可选依赖：自进化训练（M6 GRPO 在线训练）
-# 安装命令：pip install -r requirements.txt[train]
+# Optional dependencies: self-evolution training (M6 GRPO online training)
+# Install command: pip install -r requirements.txt[train]
 # ---------------------------------------------------------------------------
-# peft>=0.11.0          # LoRA 微调
-# accelerate>=0.30.0    # HuggingFace 分布式训练
-# deepspeed>=0.14.0     # 大模型分布式训练
-# wandb                 # 实验跟踪与可视化
+# peft>=0.11.0          # LoRA fine-tuning
+# accelerate>=0.30.0    # HuggingFace distributed training
+# deepspeed>=0.14.0     # Distributed training for large models
+# wandb                 # Experiment tracking and visualization
 
 # ---------------------------------------------------------------------------
-# 可选依赖：vLLM 推理服务（本地部署大模型）
-# 安装命令：pip install -r requirements.txt[serve]
+# Optional dependencies: vLLM inference service (local deployment of large models)
+# Install command: pip install -r requirements.txt[serve]
 # ---------------------------------------------------------------------------
-# vllm>=0.4.0           # 高性能 LLM 推理引擎
+# vllm>=0.4.0           # High-performance LLM inference engine
 
 # ---------------------------------------------------------------------------
-# 可选依赖：真实搜索工具
+# Optional dependencies: real search tools
 # ---------------------------------------------------------------------------
-# google-search-results  # SerpAPI 官方 Python SDK（WebSearchTool 真实模式）
-# duckduckgo-search      # DuckDuckGo 搜索（免费，无需 API Key）
+# google-search-results  # Official SerpAPI Python SDK (WebSearchTool real mode)
+# duckduckgo-search      # DuckDuckGo search (free, no API key needed)
 
 # ---------------------------------------------------------------------------
-# 可选依赖：网页阅读与文档解析（BrowserTool / FileReaderTool）
+# Optional dependencies: web page reading and document parsing (BrowserTool / FileReaderTool)
 # ---------------------------------------------------------------------------
-beautifulsoup4>=4.12    # HTML 解析（BrowserTool 正文提取）
-# pdfplumber>=0.10      # PDF 文本提取（推荐，表格保留更好）
-# PyPDF2>=3.0           # PDF 文本提取（降级方案）
-# python-docx>=1.1      # Word 文档读取
+beautifulsoup4>=4.12    # HTML parsing (BrowserTool body extraction)
+# pdfplumber>=0.10      # PDF text extraction (recommended; preserves tables better)
+# PyPDF2>=3.0           # PDF text extraction (fallback)
+# python-docx>=1.1      # Word document reading
 
 # ---------------------------------------------------------------------------
-# 开发依赖（代码质量、测试）
-# 安装命令：pip install -r requirements.txt[dev]
+# Development dependencies (code quality, testing)
+# Install command: pip install -r requirements.txt[dev]
 # ---------------------------------------------------------------------------
 # pytest>=7.0
 # pytest-asyncio
@@ -109,11 +109,11 @@ beautifulsoup4>=4.12    # HTML 解析（BrowserTool 正文提取）
 # flake8
 
 # ---------------------------------------------------------------------------
-# 本地依赖说明（非 PyPI 包）
+# Local dependency notes (non-PyPI packages)
 # ---------------------------------------------------------------------------
-# veRL 框架：项目一的核心训练框架，位于 /workspace/deep_research_agent/verl/
-#   使用方式：export PYTHONPATH="/workspace/deep_research_agent:$PYTHONPATH"
-#   或：cd /workspace/deep_research_agent/verl && pip install -e .
+# veRL framework: the core training framework of project one, located at /workspace/deep_research_agent/verl/
+#   Usage:export PYTHONPATH="/workspace/deep_research_agent:$PYTHONPATH"
+#   Or:cd /workspace/deep_research_agent/verl && pip install -e .
 #
-# tau-bench（项目一评测环境）：
-#   安装方式：pip install tau-bench
+# tau-bench (project one evaluation environment):
+#   Installation:pip install tau-bench

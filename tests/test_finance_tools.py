@@ -1,4 +1,4 @@
-"""XBRL 取数 / SEC 工具 / 证据账本 的离线测试（使用合成夹具，不联网）。"""
+"""Offline tests for XBRL data retrieval / SEC tools / evidence ledger (using synthetic fixtures, no network)."""
 from __future__ import annotations
 
 import asyncio
@@ -12,7 +12,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
-try:  # 沙箱里可能没有 aiohttp；本测试不需要真实网络栈，只需让包可导入
+try:  # aiohttp may be missing in the sandbox; this test needs no real network stack, only that the package be importable
     import aiohttp  # noqa: F401
 except ImportError:
     sys.modules["aiohttp"] = types.ModuleType("aiohttp")
@@ -47,7 +47,7 @@ def run(coro):
 class TestXbrl(unittest.TestCase):
     def test_annual_current_and_prior(self):
         cur, prior = select_period(CF, "revenue", 2023, "FY")
-        self.assertEqual(cur.value, TRUTH["2023"]["revenue"])  # 不是 10-K/A 的 99,999,000,000
+        self.assertEqual(cur.value, TRUTH["2023"]["revenue"])  # not the 10-K/A's 99,999,000,000
         self.assertEqual(cur.period_label, "FY2023")
         self.assertEqual(cur.end, "2023-09-30")
         self.assertEqual(cur.form, "10-K")
@@ -55,7 +55,7 @@ class TestXbrl(unittest.TestCase):
         self.assertEqual(prior.period_label, "FY2022")
 
     def test_amendment_and_later_filing_not_mixed_in(self):
-        # FY2024 10-K 重复披露了 FY2023 数值（fy=2024），不应影响 FY2023 的选取
+        # The FY2024 10-K re-discloses FY2023 values (fy=2024); this must not affect FY2023 selection
         cur, _ = select_period(CF, "net_income", 2023, "FY")
         self.assertEqual(cur.accn, "0001234567-23-000010")
 
@@ -67,7 +67,7 @@ class TestXbrl(unittest.TestCase):
 
     def test_quarter_excludes_cumulative_rows(self):
         cur, prior = select_period(CF, "revenue", 2024, "Q1")
-        self.assertEqual(cur.value, 12_300_000_000)  # 不是 9 个月累计的 36,000,000,000
+        self.assertEqual(cur.value, 12_300_000_000)  # not the 9-month cumulative 36,000,000,000
         self.assertEqual(prior.value, 11_500_000_000)
         self.assertEqual(cur.period_label, "Q1 FY2024")
 
@@ -95,7 +95,7 @@ class TestSecTools(unittest.TestCase):
         self.assertEqual(fy23["url"], "https://www.sec.gov/Archives/edgar/data/1234567/000123456723000010/acme-20230930.htm")
 
     def test_company_resolution_by_name_and_cik(self):
-        self.assertEqual(self.client.resolve_company("acme corp")["ticker"], "ACME")  # 名称命中最短标题
+        self.assertEqual(self.client.resolve_company("acme corp")["ticker"], "ACME")  # name matches the shortest title
         self.assertEqual(self.client.resolve_company("1234567")["cik"], 1234567)
         self.assertIsNone(self.client.resolve_company("zzz-unknown"))
 
@@ -111,7 +111,7 @@ class TestSecTools(unittest.TestCase):
         self.assertNotIn("error", res)
 
     def test_facts_tool_failure_has_no_error_key(self):
-        # 返回 error 键会让 ResearcherAgent 直接判子任务失败；这里必须是 ok=False
+        # Returning an error key would make ResearcherAgent fail the subtask outright; it must be ok=False here
         res = run(SecFactsTool(self.client).execute("ACME", 2001))
         self.assertFalse(res["ok"])
         self.assertNotIn("error", res)
@@ -180,7 +180,7 @@ class TestLedger(unittest.TestCase):
         eid = res["evidence_id"]
         ev = led.get(eid)
         self.assertEqual(ev.kind, "xbrl_facts")
-        self.assertIn("value 48250000000 USD", ev.text)  # 评测靠这行文本核对数字
+        self.assertIn("value 48250000000 USD", ev.text)  # the evaluation checks numbers against this line of text
         self.assertEqual(facts.get_openai_tool_schema()["function"]["name"], "sec_facts")
 
         from src.tools.calculator import CalculatorTool
@@ -188,7 +188,7 @@ class TestLedger(unittest.TestCase):
         out = run(calc.execute("48250/44600-1"))
         self.assertEqual(led.get(out["evidence_id"]).kind, "computation")
         self.assertIn("48250/44600-1 =", led.get(out["evidence_id"]).text)
-        # 位置参数（Blue Agent 的调用方式）同样可用
+        # Positional arguments (how Blue Agent calls it) also work
         out2 = run(calc.execute("1+1"))
         self.assertIn("1+1 = 2", led.get(out2["evidence_id"]).text)
 

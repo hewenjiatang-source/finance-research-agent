@@ -1,41 +1,41 @@
 # =============================================================================
-# File Reader (文件阅读器) 工具配置
+# File Reader tool configuration
 # =============================================================================
-# 读取本地文件并转换为 LLM 可消费的文本格式。
+# Reads local files and converts them into a text format the LLM can consume.
 # =============================================================================
 
 file_reader:
   name: "file_reader"
-  description: "读取本地文件（.txt/.md/.pdf/.csv/.json/.docx）并返回文本内容"
+  description: "Read a local file (.txt/.md/.pdf/.csv/.json/.docx) and return its text content"
 
-  # 总开关
+  # Master switch
   enabled: true
 
   # ---------------------------------------------------------------------------
-  # 安全参数
+  # Safety parameters
   # ---------------------------------------------------------------------------
-  # 允许读取的根目录（sandbox 模式）。
-  # 设置为 null 表示不限制（生产环境强烈建议设置）。
+  # Root directory that may be read (sandbox mode).
+  # Setting it to null means no restriction (strongly recommended to set in production).
   allowed_base_dir: null
-  # 最大文件大小（字节）
+  # Maximum file size (bytes)
   max_file_size: 10485760  # 10 MB
 
   # ---------------------------------------------------------------------------
-  # 格式特定参数
+  # Format-specific parameters
   # ---------------------------------------------------------------------------
-  # CSV 预览行数
+  # Number of CSV preview rows
   csv_preview_rows: 20
-  # JSON 最大递归深度
+  # JSON maximum recursion depth
   json_max_depth: 3
 
   # ---------------------------------------------------------------------------
-  # 支持格式与依赖
+  # Supported formats and dependencies
   # ---------------------------------------------------------------------------
-  # .txt / .md  → 无需额外依赖
-  # .pdf        → pdfplumber（推荐）或 PyPDF2
+  # .txt / .md  → no extra dependencies needed
+  # .pdf        → pdfplumber(recommended) or PyPDF2
   # .csv        → pandas
-  # .json       → 标准库 json
+  # .json       → standard library json
   # .docx       → python-docx
   #
-  # 安装命令：
+  # Install command:
   #   pip install pdfplumber pandas python-docx

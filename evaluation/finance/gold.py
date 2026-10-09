@@ -1,10 +1,10 @@
-"""金标准（gold）：来自 SEC XBRL 申报数据，而不是 LLM 生成。
+"""Gold standard: comes from SEC XBRL filing data, not from an LLM.
 
-两种来源：
-  * ``gold_from_companyfacts`` —— 用与工具同一套 ``select_period`` 逻辑从 companyfacts 生成；
-    注意这里与被测 Agent 共用取数代码，只能证明"Agent 抄对了结构化数据"，
-    不能证明取数逻辑本身正确 —— 所以 truth.json（人工核对的夹具真值）单独作为回归基准。
-  * ``load_gold`` —— 读取人工核对过的 JSON：{"2023": {"revenue": 4.825e10, ...}, "2022": {...}}
+Two sources:
+  * ``gold_from_companyfacts`` — generated from companyfacts with the same ``select_period`` logic the tools use;
+    note this shares the extraction code with the agent under test, so it only proves the agent copied the structured data faithfully,
+    not that the extraction logic itself is right — hence truth.json (hand-checked fixture truth) is kept as a separate regression baseline.
+  * ``load_gold`` — reads a hand-checked JSON: {"2023": {"revenue": 4.825e10, ...}, "2022": {...}}
 """
 from __future__ import annotations
 
@@ -19,8 +19,8 @@ __all__ = ["Gold", "gold_from_companyfacts", "load_gold"]
 
 @dataclass
 class Gold:
-    company: str                                   # 主名称
-    aliases: list[str] = field(default_factory=list)  # 报告里可能出现的称呼（含 ticker）
+    company: str                                   # primary name
+    aliases: list[str] = field(default_factory=list)  # names the report may use (including the ticker)
     periods: dict[str, dict[str, float]] = field(default_factory=dict)  # "FY2023" -> {metric: value}
     period_ends: dict[str, str] = field(default_factory=dict)
 

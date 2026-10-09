@@ -1,11 +1,11 @@
 """
-自适应规划器 (Adaptive Planner)
+Adaptive Planner
 
-LLM 驱动的规划器，负责将研究问题分解为结构化的子任务 DAG。
-核心能力:
-  - 初始规划: 生成 3-8 个子问题的 DAG
-  - 增量重规划: 保留 confidence≥0.6 的成功结果，仅修改失败子问题
-  - 健壮性 JSON 解析: 支持 markdown 代码块、多余换行等噪声
+An LLM-driven planner that decomposes a research question into a structured sub-task DAG.
+Core capabilities:
+  - initial planning: generate a DAG of 3-8 sub-questions
+  - incremental re-planning: keep successful results with confidence≥0.6, modify only the failed sub-questions
+  - robust JSON parsing: tolerates noise such as markdown code blocks and extra newlines
 """
 from __future__ import annotations
 
@@ -23,12 +23,12 @@ __all__ = ["Planner", "PlanParseError"]
 
 
 class PlanParseError(Exception):
-    """规划结果解析失败时抛出。"""
+    """Raised when the planning result cannot be parsed."""
     pass
 
 
 # ============================================================================
-# Prompt 常量
+# Prompt constants
 # ============================================================================
 
 INITIAL_PLAN_PROMPT = """\
@@ -107,11 +107,11 @@ Only return the JSON. No markdown, no extra text.
 
 
 class Planner:
-    """自适应规划器。
+    """Adaptive planner.
 
     Attributes:
-        policy: VLLMPolicy 实例，用于调用 LLM。
-        budget_tracker: 可选的预算追踪器，监控 planning 阶段的 token 消耗。
+        policy: VLLMPolicy instance used to call the LLM.
+        budget_tracker: optional budget tracker that monitors the token consumption of the planning phase.
     """
 
     def __init__(self, policy, budget_tracker: BudgetTracker | None = None) -> None:
@@ -120,22 +120,22 @@ class Planner:
         self._last_raw_json: str = ""
 
     # ------------------------------------------------------------------
-    # 公共 API
+    # Public API
     # ------------------------------------------------------------------
 
     @trace_chain(name="planner.generate_plan", tags=["m2", "planner"])
     def generate_plan(self, query: str, memory_context: str = "") -> DAG:
-        """生成初始执行计划（DAG）。
+        """Generate the initial execution plan (DAG).
 
         Args:
-            query: 原始研究问题。
-            memory_context: 历史上下文（首次规划为空字符串）。
+            query: the original research question.
+            memory_context: historical context (an empty string for the first plan).
 
         Returns:
-            DAG: 子任务依赖图。
+            DAG: the sub-task dependency graph.
 
         Raises:
-            PlanParseError: LLM 输出无法解析为合法 DAG 时抛出。
+            PlanParseError: raised when the LLM output cannot be parsed into a valid DAG.
         """
         prompt = self._build_prompt(query, memory_context)
         messages = [
@@ -150,7 +150,7 @@ class Planner:
 
         content = response.get("content", "") or ""
         self._last_raw_json = content
-        # 估算 planning token 消耗
+        # estimate the planning token consumption
         self.budget_tracker.track(len(content) // 3)
 
         return self._parse_plan(content)
@@ -163,18 +163,18 @@ class Planner:
         existing_results: list[AgentResult],
         reason: str,
     ) -> DAG:
-        """增量重规划：保留高置信度结果，修改失败任务。
+        """Incremental re-planning: keep high-confidence results, modify failed tasks.
 
         Args:
-            query: 原始研究问题。
-            failed_tasks: 执行失败的 SubTask 列表。
-            existing_results: 所有历史执行结果。
-            reason: 失败原因描述。
+            query: the original research question.
+            failed_tasks: list of SubTasks that failed.
+            existing_results: all historical execution results.
+            reason: description of the failure reasons.
 
         Returns:
-            DAG: 新的执行计划。
+            DAG: the new execution plan.
         """
-        # 筛选保留的结果（confidence >= 0.6 且状态为 SUCCESS）
+        # select results to keep (confidence >= 0.6 and status SUCCESS)
         preserved = [
             {
                 "task_id": r.task_id,
@@ -215,12 +215,12 @@ class Planner:
         return self._parse_plan(content)
 
     # ------------------------------------------------------------------
-    # 内部方法
+    # Internal methods
     # ------------------------------------------------------------------
 
     def _build_prompt(self, query: str, memory: str) -> str:
-        """构建初始规划 prompt。"""
-        # 首次运行（无历史记忆）时，提示 Planner 更激进地拆解子任务
+        """Build the initial planning prompt."""
+        # on a first run (no history), tell the Planner to decompose more aggressively
         has_memory = bool(memory and memory.strip() and memory != "None")
         if not has_memory:
             extra_hint = (
@@ -240,19 +240,19 @@ class Planner:
         return INITIAL_PLAN_PROMPT.format(query=query, memory_context=memory or "None") + extra_hint
 
     def _parse_plan(self, json_str: str) -> DAG:
-        """健壮性 JSON 解析：处理 markdown 代码块、多余换行等噪声。
+        """Robust JSON parsing: handles noise such as markdown code blocks and extra newlines.
 
-        解析策略:
-          1. 先尝试直接 json.loads
-          2. 失败则提取 markdown 代码块内容
-          3. 清理常见噪声（尾部逗号、注释等）
-          4. 验证 DAG 无环
+        Parsing strategy:
+          1. first try json.loads directly
+          2. on failure, extract the markdown code block content
+          3. clean up common noise (trailing commas, comments, etc.)
+          4. verify the DAG is acyclic
         """
         raw = json_str.strip()
 
-        # 尝试提取 markdown 代码块
+        # try to extract a markdown code block
         if raw.startswith("```"):
-            # 去掉首行 ```json 或 ```
+            # strip the first line ```json or ```
             lines = raw.splitlines()
             if lines[0].startswith("```"):
                 lines = lines[1:]
@@ -260,28 +260,28 @@ class Planner:
                 lines = lines[:-1]
             raw = "\n".join(lines).strip()
 
-        # 尝试提取 ```json...``` 中间的内容（即使不在开头）
+        # try to extract the content between ```json...``` (even when it is not at the beginning)
         code_block_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", raw, re.DOTALL)
         if code_block_match:
             raw = code_block_match.group(1).strip()
 
-        # 尝试直接找最外层的 JSON 对象
+        # try to find the outermost JSON object directly
         if not raw.startswith("{"):
             obj_match = re.search(r"(\{.*\})", raw, re.DOTALL)
             if obj_match:
                 raw = obj_match.group(1).strip()
 
-        # 清理尾部逗号（JSON 不允许 trailing comma）
+        # clean trailing commas (JSON does not allow trailing commas)
         raw = re.sub(r",(\s*[}\]])", r"\1", raw)
 
-        # 解析 JSON
+        # parse the JSON
         try:
             data = json.loads(raw)
         except json.JSONDecodeError as e:
-            # 最后尝试：逐行修复（去掉注释）
+            # last attempt: repair line by line (strip comments)
             cleaned_lines = []
             for line in raw.splitlines():
-                # 去掉 // 注释
+                # strip // comments
                 if "//" in line:
                     line = line[: line.index("//")]
                 cleaned_lines.append(line)
@@ -304,16 +304,16 @@ class Planner:
             task = self._deserialize_subtask(item)
             dag.add_node(task.task_id)
 
-        # 第二遍添加边
+        # second pass: add edges
         for item in sub_tasks_raw:
             task_id = item.get("task_id", "")
             for dep in item.get("dependencies", []):
                 if not dag.has_node(dep):
-                    # 依赖指向不存在的任务，创建占位节点
+                    # the dependency points to a missing task, create a placeholder node
                     dag.add_node(dep)
-                dag.add_edge(dep, task_id)  # dep -> task_id (task_id 依赖 dep)
+                dag.add_edge(dep, task_id)  # dep -> task_id (task_id depends on dep)
 
-        # 验证无环
+        # verify acyclic
         try:
             dag.topological_sort()
         except DAGCycleError as e:
@@ -322,12 +322,12 @@ class Planner:
         return dag
 
     def _deserialize_subtask(self, item: dict[str, Any]) -> SubTask:
-        """将 JSON dict 反序列化为 SubTask。"""
+        """Deserialize a JSON dict into a SubTask."""
         task_type_str = item.get("task_type", "search")
         try:
             task_type = TaskType(task_type_str)
         except ValueError:
-            task_type = TaskType.SEARCH  # 默认值降级
+            task_type = TaskType.SEARCH  # degrade to the default
 
         return SubTask(
             task_id=item.get("task_id", "unknown"),
@@ -342,12 +342,12 @@ class Planner:
         )
 
     def get_task_map_from_dag(self, dag: DAG, raw_json: str) -> dict[str, SubTask]:
-        """从 DAG 和原始 JSON 重建 task_id -> SubTask 映射。
+        """Rebuild the task_id -> SubTask mapping from the DAG and the raw JSON.
 
-        通常在 generate_plan 后由编排器调用。
+        Usually called by the orchestrator after generate_plan.
         """
-        # 复用 _parse_plan 中的解析逻辑，但返回映射
-        # 这里重新解析 raw_json 以获取完整 SubTask 信息
+        # reuse the parsing logic in _parse_plan but return a mapping
+        # re-parse raw_json here to get the full SubTask info
         raw = raw_json.strip()
         if raw.startswith("```"):
             lines = raw.splitlines()

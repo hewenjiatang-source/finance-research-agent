@@ -3,12 +3,12 @@
 """
 src/core/runner.py
 ================================================================================
-DeepResearch Agent 核心运行逻辑。
+Core run logic of the DeepResearch Agent.
 
-本模块包含初始化所有模块和执行完整研究流程的核心函数，
-供 scripts/ 和 evaluation/ 统一调用，避免 evaluation/ 反向依赖 scripts/。
+This module holds the core functions that initialize all modules and run the complete research flow,
+called uniformly by scripts/ and evaluation/, so that evaluation/ does not depend back on scripts/.
 
-对外接口:
+Public interface:
     - load_config(config_path) -> dict
     - initialize_modules(config) -> dict
     - run_research(query, config, modules) -> str
@@ -29,17 +29,17 @@ from typing import Any
 
 import yaml
 
-# 将项目根目录加入 sys.path，确保 src 包可导入
+# add the project root to sys.path so the src package is importable
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 
 # ---------------------------------------------------------------------------
-# 日志配置
+# Logging configuration
 # ---------------------------------------------------------------------------
 def setup_logging(log_level: str = "INFO") -> None:
-    """配置全局日志格式与级别。"""
+    """Configure the global log format and level."""
     logging.basicConfig(
         level=getattr(logging, log_level.upper(), logging.INFO),
         format="[%(asctime)s] [%(levelname)s] %(name)s: %(message)s",
@@ -48,24 +48,24 @@ def setup_logging(log_level: str = "INFO") -> None:
 
 
 # ---------------------------------------------------------------------------
-# 配置加载
+# Configuration loading
 # ---------------------------------------------------------------------------
 def load_config(config_path: str | None = None) -> dict:
     """
-    加载 YAML 配置文件。
+    Load a YAML configuration file.
 
-    若未指定路径，默认加载 configs/default.yaml。
+    If no path is given, configs/default.yaml is loaded by default.
     """
     if config_path is None:
         config_path = os.path.join(PROJECT_ROOT, "configs", "default.yaml")
 
     if not os.path.exists(config_path):
-        raise FileNotFoundError(f"配置文件未找到: {config_path}")
+        raise FileNotFoundError(f"Configuration file not found: {config_path}")
 
     with open(config_path, "r", encoding="utf-8") as f:
         config = yaml.safe_load(f) or {}
 
-    # 支持 `extends: default.yaml`：先加载父配置，再递归合并本文件（dict 深合并，其余覆盖）
+    # supports `extends: default.yaml`: load the parent config first, then recursively merge this file (dicts deep-merge, everything else overrides)
     parent = config.pop("extends", None)
     if parent:
         parent_path = parent if os.path.isabs(parent) else os.path.join(os.path.dirname(config_path), parent)
@@ -89,10 +89,10 @@ def is_finance(config: dict) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# 工具工厂
+# Tool factory
 # ---------------------------------------------------------------------------
 def _create_tools_factory(config: dict, ledger=None):
-    """创建工具工厂函数，返回 Agent 可用的工具列表。"""
+    """Create the tool factory, returning the list of tools available to Agents."""
     tools_cfg = config.get("tools", {})
     mock_mode = tools_cfg.get("web_search", {}).get("mock_mode", True)
 
@@ -125,7 +125,7 @@ def _create_tools_factory(config: dict, ledger=None):
     # 3. arxiv_reader
     tools["arxiv_reader"] = ArxivReaderTool(use_mock=mock_mode)
 
-    # 4. file_reader（不限制目录）
+    # 4. file_reader (no directory restriction)
     tools["file_reader"] = FileReaderTool(allowed_base_dir=None)
 
     # 5. code_sandbox
@@ -137,7 +137,7 @@ def _create_tools_factory(config: dict, ledger=None):
     # 7. notepad
     tools["notepad"] = NotepadTool()
 
-    # 财报场景：去掉学术论文工具，加入 SEC 工具，并全部包上证据账本
+    # finance scenario: drop the academic-paper tool, add the SEC tools, and wrap everything with the evidence ledger
     if is_finance(config):
         from src.finance.evidence import LedgerTool
         from src.tools.sec_edgar import SecClient, create_sec_tools
@@ -150,30 +150,30 @@ def _create_tools_factory(config: dict, ledger=None):
         if ledger is not None:
             tools = {k: LedgerTool(v, ledger) for k, v in tools.items()}
 
-    # 返回列表形式（AgentPool 和 Agent 构造函数需要 list）
+    # return a list (AgentPool and the Agent constructors need a list)
     return list(tools.values())
 
 
 # ---------------------------------------------------------------------------
-# 模块初始化
+# Module initialization
 # ---------------------------------------------------------------------------
 def initialize_modules(config: dict, session_id: str = "") -> dict[str, Any]:
     """
-    根据配置初始化所有核心模块。
+    Initialize all core modules from the configuration.
 
     Args:
-        config: 全局配置字典。
-        session_id: 会话 ID，用于 memory store 的 session 隔离。
+        config: global configuration dict.
+        session_id: session id, used for session isolation in the memory store.
 
-    返回一个包含各模块实例的字典。
+    Returns a dict containing the module instances.
     """
     logger = logging.getLogger("runner")
-    logger.info("正在初始化核心模块...")
+    logger.info("Initializing core modules...")
 
     modules: dict[str, Any] = {}
 
     # ------------------------------------------------------------------
-    # 多后端 LLM 初始化（从 .env + configs/default.yaml 读取配置）
+    # Multi-backend LLM initialization (reads config from .env + configs/default.yaml)
     # ------------------------------------------------------------------
     from src.models.model_router import ModelRouter
 
@@ -182,34 +182,34 @@ def initialize_modules(config: dict, session_id: str = "") -> dict[str, Any]:
     backend_mapping = model_cfg.get("backend_mapping", {})
     backend_sampling = model_cfg.get("backend_sampling", {})
 
-    # 辅助函数：根据模块名获取采样参数覆盖
+    # helper: get the sampling-parameter overrides by module name
     def _get_sampling_kwargs(module_name: str, backend_name: str) -> dict:
-        """合并后端全局默认 + 模块级覆盖参数。"""
+        """Merge backend-wide defaults + module-level overrides."""
         kwargs = {}
-        # 1. 后端全局默认
+        # 1. backend-wide defaults
         if backend_name in backend_sampling:
             kwargs.update(backend_sampling[backend_name])
-        # 2. 模块级覆盖（优先级更高）
+        # 2. module-level overrides (higher priority)
         module_overrides = backend_sampling.get("modules", {}).get(module_name, {})
         kwargs.update(module_overrides)
         return kwargs
 
-    # 默认后端（所有模块共用）
+    # default backend (shared by all modules)
     default_kwargs = _get_sampling_kwargs("default", default_backend)
     default_policy = ModelRouter.create_backend(default_backend, **default_kwargs)
     modules["default_policy"] = default_policy
-    logger.info(f"[LLM] 默认后端已加载: {default_backend} ({default_kwargs})")
+    logger.info(f"[LLM] Default backend loaded: {default_backend} ({default_kwargs})")
 
-    # 多后端分工：不同模块用不同后端 + 不同采样参数
+    # multi-backend division of labor: different modules use different backends + different sampling parameters
     for module_name, backend_name in backend_mapping.items():
         kwargs = _get_sampling_kwargs(module_name, backend_name)
         modules[f"{module_name}_policy"] = ModelRouter.create_backend(backend_name, **kwargs)
-        logger.info(f"[LLM] {module_name} → 后端={backend_name}, 采样={kwargs}")
+        logger.info(f"[LLM] {module_name} → backend={backend_name}, sampling={kwargs}")
 
-    # 若未配置分工，所有模块回退到 default_policy
+    # if no division of labor is configured, every module falls back to default_policy
     # ------------------------------------------------------------------
 
-    # M2: Adaptive Planner（Orchestrator 依赖 Planner，先初始化）
+    # M2: Adaptive Planner (the Orchestrator depends on the Planner, so initialize it first)
     from src.planner.planner import Planner
     from src.planner.budget_tracker import BudgetTracker
 
@@ -232,7 +232,7 @@ def initialize_modules(config: dict, session_id: str = "") -> dict[str, Any]:
     else:
         planner = Planner(policy=planner_policy, budget_tracker=budget_tracker)
     modules["planner"] = planner
-    logger.info("[M2] Planner 模块已初始化")
+    logger.info("[M2] Planner module initialized")
 
     # M3: Context Compressor
     from src.compressor.compressor import ContextCompressor
@@ -245,7 +245,7 @@ def initialize_modules(config: dict, session_id: str = "") -> dict[str, Any]:
         output_reserve=compressor_cfg.get("output_reserve_tokens", 2048),
     )
     modules["compressor"] = compressor
-    logger.info("[M3] Compressor 模块已初始化")
+    logger.info("[M3] Compressor module initialized")
 
     # M4: Shared Memory Store
     from src.memory.memory_store import SharedMemoryStore
@@ -256,14 +256,14 @@ def initialize_modules(config: dict, session_id: str = "") -> dict[str, Any]:
         session_id=session_id,
     )
     modules["memory_store"] = memory_store
-    logger.info(f"[M4] Memory Store 模块已初始化 (session={session_id})")
+    logger.info(f"[M4] Memory Store module initialized (session={session_id})")
 
-    # Tools（真实工具或 Mock 工具）
+    # Tools (real tools or Mock tools)
     tools_list = _create_tools_factory(config, ledger)
     modules["tools"] = tools_list
-    logger.info(f"Tools 模块已初始化（共 {len(tools_list)} 个工具）")
+    logger.info(f"Tools module initialized ({len(tools_list)} tools)")
 
-    # M5: Red-Blue Adversarial Loop（先创建，再注入 Orchestrator）
+    # M5: Red-Blue Adversarial Loop (create it first, then inject it into the Orchestrator)
     from src.adversarial.loop import AdversarialLoop
     from src.adversarial.red_agent import RedAgent
     from src.adversarial.blue_agent import BlueAgent
@@ -292,7 +292,7 @@ def initialize_modules(config: dict, session_id: str = "") -> dict[str, Any]:
         delta_threshold=adversarial_cfg.get("delta_threshold", 0.3),
     )
     modules["adversarial"] = adversarial_loop
-    logger.info("[M5] Adversarial 模块已初始化")
+    logger.info("[M5] Adversarial module initialized")
 
     # M1: Multi-Agent Orchestrator
     from src.orchestrator.orchestrator import Orchestrator
@@ -331,53 +331,53 @@ def initialize_modules(config: dict, session_id: str = "") -> dict[str, Any]:
         summarizer_factory=summarizer_factory,
     )
     modules["orchestrator"] = orchestrator
-    logger.info("[M1] Orchestrator 模块已初始化")
+    logger.info("[M1] Orchestrator module initialized")
 
-    # M6: Self-Evolution Engine（预留，默认禁用）
+    # M6: Self-Evolution Engine (reserved, disabled by default)
     if config.get("evolution", {}).get("enabled", False):
-        logger.info("[M6] Evolution 模块已启用（预留接口）")
+        logger.info("[M6] Evolution module enabled (reserved interface)")
     else:
-        logger.info("[M6] Evolution 模块已禁用")
+        logger.info("[M6] Evolution module disabled")
 
     return modules
 
 
 # ---------------------------------------------------------------------------
-# 研究流程主函数
+# Main research flow
 # ---------------------------------------------------------------------------
 async def run_research_full(query: str, config: dict, modules: dict[str, Any]):
     """
-    执行完整的研究流程。
+    Run the complete research flow.
 
-    流程：
-        1. Orchestrator 调用 Planner 拆解问题为子任务 DAG
-        2. Orchestrator 调度 AgentPool 中的子 Agent 并行/串行执行
-        3. 子 Agent 调用 Tools 检索信息并生成子报告
-        4. Compressor 管理长上下文
-        5. Memory 存储中间结果
-        6. Adversarial Loop 对报告进行多轮对抗优化（若启用）
-        7. 输出最终研究报告
+    Flow:
+        1. the Orchestrator calls the Planner to decompose the question into a sub-task DAG
+        2. the Orchestrator schedules the sub-agents in the AgentPool, in parallel / serially
+        3. sub-agents call Tools to retrieve information and produce sub-reports
+        4. the Compressor manages long context
+        5. Memory stores intermediate results
+        6. the Adversarial Loop optimizes the report over several adversarial rounds (if enabled)
+        7. output the final research report
 
     Args:
-        query: 用户输入的研究问题。
-        config: 全局配置字典。
-        modules: 已初始化的模块实例字典。
+        query: the research question entered by the user.
+        config: global configuration dict.
+        modules: dict of initialized module instances.
 
     Returns:
-        (最终研究报告 Markdown 文本, ResearchReport)。财报场景下 ResearchReport.evidence 为证据账本快照。
+        (final research report as Markdown text, ResearchReport). In the finance scenario ResearchReport.evidence is a snapshot of the evidence ledger.
     """
     import asyncio
 
     logger = logging.getLogger("runner")
-    logger.info(f"开始研究，查询: {query[:80]}...")
+    logger.info(f"Starting research, query: {query[:80]}...")
 
     start_time = time.time()
 
     ledger = modules.get("ledger")
     if ledger is not None:
-        ledger.reset()  # 账本按次运行；同一 modules 不支持并发跑多个 query
+        ledger.reset()  # the ledger is per run; running several queries concurrently on the same modules is not supported
 
-    # Step 1-3: Orchestrator 内部完成规划、调度、收集、合成
+    # Step 1-3: the Orchestrator does planning, scheduling, collection and synthesis internally
     orchestrator = modules["orchestrator"]
     from src.orchestrator.schemas import RunConfig
 
@@ -392,34 +392,34 @@ async def run_research_full(query: str, config: dict, modules: dict[str, Any]):
 
     report = await orchestrator.run(query, config=run_cfg)
     logger.info(
-        f"[Orchestrator] 报告生成完成 | 置信度={report.confidence:.2f} | "
-        f"搜索轮数={report.num_searches} | 重规划={report.num_replan} | 对抗轮数={report.adversarial_rounds}"
+        f"[Orchestrator] Report generated | confidence={report.confidence:.2f} | "
+        f"searches={report.num_searches} | replans={report.num_replan} | adversarial rounds={report.adversarial_rounds}"
     )
 
-    if ledger is not None:  # 对抗环里 Blue 可能又检索了新证据，以最终账本为准
+    if ledger is not None:  # Blue may retrieve new evidence inside the adversarial loop; the final ledger is authoritative
         report.evidence = ledger.to_list()
         report.sources = ledger.to_sources()
 
-    # Step 4/5: 进化优化（如启用且已训练）
+    # Step 4/5: evolution optimization (if enabled and trained)
     if run_cfg.enable_evolution:
-        logger.info("[Evolution] 进化优化已启用（预留接口）")
+        logger.info("[Evolution] Evolution optimization enabled (reserved interface)")
     else:
-        logger.info("[Evolution] 进化优化已跳过")
+        logger.info("[Evolution] Evolution optimization skipped")
 
-    # 关闭 WebSearchTool 连接池
+    # close the WebSearchTool connection pool
     from src.tools.web_search import WebSearchTool
     await WebSearchTool.close_session()
 
     elapsed = time.time() - start_time
-    logger.info(f"研究完成，耗时: {elapsed:.2f} 秒")
+    logger.info(f"Research finished, elapsed: {elapsed:.2f} s")
 
-    # 组装最终输出
+    # assemble the final output
     final_report = _format_report(report, elapsed, config.get("finance", {}).get("language", "zh") if is_finance(config) else "zh")
     return final_report, report
 
 
 async def run_research(query: str, config: dict, modules: dict[str, Any]) -> str:
-    """兼容旧接口：只返回 Markdown 文本。需要证据账本请用 run_research_full。"""
+    """Backward-compatible interface: returns only the Markdown text. Use run_research_full to get the evidence ledger."""
     text, _ = await run_research_full(query, config, modules)
     return text
 
@@ -434,11 +434,11 @@ _LABELS = {
 
 
 def _format_report(report, elapsed: float, lang: str = "zh") -> str:
-    """将 ResearchReport 格式化为 Markdown 文本（lang: zh | en；财报场景由 finance.language 决定）。"""
+    """Format a ResearchReport as Markdown text (lang: zh | en; in the finance scenario finance.language decides)."""
     L = _LABELS.get(lang, _LABELS["zh"])
     content = report.content or ""
 
-    # 统一置信度：如果正文中有 LLM 自评的"整体置信度"，替换为实际计算值，避免不一致
+    # unify confidence: if the body has the LLM's self-rated "overall confidence", replace it with the actually computed value, to avoid inconsistency
     content = re.sub(
         r"(整体置信度|Overall Confidence|置信度)[:：]\s*0?\.\d+",
         f"\\1: {report.confidence:.2f}",
@@ -472,7 +472,7 @@ def _format_report(report, elapsed: float, lang: str = "zh") -> str:
             title = src.get("title", L["unk"])
             url = src.get("url", "")
             snippet = " ".join(src.get("snippet", "").split())[:160]
-            if "id" in src:  # 财报场景：编号 == evidence_id，与正文 [n] 对应
+            if "id" in src:  # finance scenario: number == evidence_id, matching the [n] in the body
                 lines.append(f"[{src['id']}] [{title}]({url}) — {snippet}")
             else:
                 lines.append(f"{i}. [{title}]({url}) — {snippet}")
@@ -482,13 +482,13 @@ def _format_report(report, elapsed: float, lang: str = "zh") -> str:
 
 
 # ---------------------------------------------------------------------------
-# 报告保存
+# Report saving
 # ---------------------------------------------------------------------------
 def save_report(report: str, query: str, output_dir: str = "outputs/reports", evidence: list[dict] | None = None) -> str:
     """
-    将研究报告保存到文件。
+    Save the research report to a file.
 
-    文件名格式：report_YYYYMMDD_HHMMSS_<query前20字>.md
+    File name format: report_YYYYMMDD_HHMMSS_<first 20 chars of query>.md
     """
     os.makedirs(output_dir, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -499,7 +499,7 @@ def save_report(report: str, query: str, output_dir: str = "outputs/reports", ev
     with open(filepath, "w", encoding="utf-8") as f:
         f.write(report)
 
-    if evidence:  # 证据侧车文件：评测可离线重放引用核对/数据准确性
+    if evidence:  # evidence sidecar file: lets the evaluation replay citation verification / data accuracy offline
         from src.finance.evidence import EVIDENCE_SCHEMA
         import json
 

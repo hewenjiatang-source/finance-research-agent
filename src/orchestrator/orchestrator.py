@@ -1,15 +1,15 @@
 """
-Deep Research Agent — 核心编排器 (M1: Multi-Agent Orchestrator)
+Deep Research Agent — core orchestrator (M1: Multi-Agent Orchestrator)
 
-9 状态状态机驱动的异步任务编排引擎：
+An async task-orchestration engine driven by a 9-state state machine:
   IDLE → PLANNING → DISPATCHING → COLLECTING → SYNTHESIZING → ADVERSARIAL → DONE
-  失败时进入 REPLANNING，最终可进入 FAILED。
+  On failure it enters REPLANNING, and may finally reach FAILED.
 
-设计亮点:
-  - 自研 asyncio + DAG executor，不依赖 LangGraph/AutoGen
-  - 拓扑排序后按层并发执行，Semaphore 控制最大并发度
-  - 三级降级策略：单任务超时→标记继续；>50%失败→re-plan；全局超时→强制合成
-  - 状态机用字典映射实现，便于扩展新状态和转换逻辑
+Highlights:
+  - hand-written asyncio + DAG executor, no dependency on LangGraph/AutoGen
+  - after topological sorting, tasks run concurrently layer by layer, with a Semaphore capping concurrency
+  - three-level degradation: single-task timeout -> mark and continue; >50% failures -> re-plan; global timeout -> force synthesis
+  - the state machine is a dict mapping, which makes adding states and transitions easy
 """
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ from ..planner.planner import Planner, PlanParseError
 from ..planner.budget_tracker import BudgetTracker
 from ..utils.tracing import trace_chain
 
-# M4: Memory Store 类型提示（延迟导入避免循环依赖）
+# M4: Memory Store type hints (lazy import to avoid a circular dependency)
 SharedMemoryStore = Any
 
 
@@ -40,14 +40,14 @@ __all__ = ["Orchestrator"]
 
 
 class Orchestrator:
-    """Deep Research Agent 核心编排器。
+    """Core orchestrator of the Deep Research Agent.
 
     Attributes:
-        planner: 自适应规划器，负责初始规划和增量重规划。
-        agent_pool: Agent 对象池，管理 worker agent 生命周期。
-        budget_tracker: Token 预算追踪器。
-        memory_store: 全局共享内存，存储所有子任务结果和中间上下文。
-        compressor: （预留）上下文压缩器接口。
+        planner: adaptive planner, responsible for initial planning and incremental re-planning.
+        agent_pool: agent object pool, managing the lifecycle of worker agents.
+        budget_tracker: token budget tracker.
+        memory_store: global shared memory holding all sub-task results and intermediate context.
+        compressor: (reserved) context compressor interface.
     """
 
     def __init__(
@@ -68,10 +68,10 @@ class Orchestrator:
         self.adversarial_loop = adversarial_loop
         self.memory_store = memory_store
         self.summarizer_policy = summarizer_policy
-        # (policy, tools) -> SummarizerAgent；财报场景注入带证据账本的合成器
+        # (policy, tools) -> SummarizerAgent; the finance scenario injects a summarizer that carries the evidence ledger
         self.summarizer_factory = summarizer_factory
 
-        # 运行时状态（保留 dict 作为快速缓存，M4 提供持久化 + 语义检索）
+        # runtime state (the dict is kept as a fast cache; M4 provides persistence + semantic retrieval)
         self._memory_store: dict[str, Any] = {}
         self._results: list[AgentResult] = []
         self._dag: DAG | None = None
@@ -83,7 +83,7 @@ class Orchestrator:
         self._replan_count: int = 0
         self._adversarial_count: int = 0
 
-        # 状态机处理器映射
+        # state handler mapping
         self._state_handlers: dict[OrchestratorState, Callable[[], asyncio.Future[OrchestratorState]]] = {
             OrchestratorState.IDLE: self._on_idle,
             OrchestratorState.PLANNING: self._do_planning,
@@ -97,19 +97,19 @@ class Orchestrator:
         }
 
     # ------------------------------------------------------------------
-    # 公共 API
+    # Public API
     # ------------------------------------------------------------------
 
     @trace_chain(name="orchestrator.run", tags=["m1", "orchestrator"])
     async def run(self, query: str, config: RunConfig | None = None) -> ResearchReport:
-        """主入口：执行完整的研究流程。
+        """Main entry point: run the complete research flow.
 
         Args:
-            query: 研究问题。
-            config: 运行配置，默认使用 RunConfig()。
+            query: the research question.
+            config: run configuration, defaults to RunConfig().
 
         Returns:
-            ResearchReport: 最终研究报告。
+            ResearchReport: the final research report.
         """
         self._query = query
         self._config = config or RunConfig()
@@ -122,16 +122,16 @@ class Orchestrator:
         self._task_map.clear()
         self._current_state = OrchestratorState.IDLE
 
-        # 状态机主循环
+        # state machine main loop
         while self._current_state not in (OrchestratorState.DONE, OrchestratorState.FAILED):
-            # 全局超时检查
+            # global timeout check
             if self._is_global_timeout():
                 if self._current_state in (
                     OrchestratorState.COLLECTING,
                     OrchestratorState.SYNTHESIZING,
                     OrchestratorState.ADVERSARIAL,
                 ):
-                    # 强制合成：用已有结果生成报告
+                    # force synthesis: generate the report from the existing results
                     self._current_state = OrchestratorState.SYNTHESIZING
                 else:
                     self._current_state = OrchestratorState.FAILED
@@ -146,16 +146,16 @@ class Orchestrator:
 
             print(f"[Orchestrator] State transition: {self._current_state.value}")
 
-        # 返回结果
+        # return the result
         if self._current_state == OrchestratorState.DONE:
-            # 最终报告应在 memory 中
+            # the final report should be in memory
             report = self._memory_store.get("final_report")
             if report is None:
                 report = ResearchReport(query=query, content="Report generation failed unexpectedly.")
             report.num_replan = self._replan_count
             report.adversarial_rounds = self._adversarial_count
 
-            # M4: 将最终报告存入 SharedMemoryStore
+            # M4: store the final report in the SharedMemoryStore
             if self.memory_store is not None:
                 try:
                     from src.memory.long_term import MemoryEntry
@@ -182,7 +182,7 @@ class Orchestrator:
 
             return report
 
-        # FAILED 状态
+        # FAILED state
         return ResearchReport(
             query=query,
             content="Research failed due to persistent errors or global timeout.",
@@ -191,25 +191,25 @@ class Orchestrator:
         )
 
     # ------------------------------------------------------------------
-    # 状态机处理器
+    # State handlers
     # ------------------------------------------------------------------
 
     async def _on_idle(self) -> OrchestratorState:
-        """从 IDLE 自动进入 PLANNING。"""
+        """Automatically move from IDLE to PLANNING."""
         return OrchestratorState.PLANNING
 
     async def _do_planning(self) -> OrchestratorState:
-        """调用 Planner 生成初始 DAG。
+        """Call the Planner to generate the initial DAG.
 
-        失败时直接转入 FAILED（初始计划失败无法恢复）。
+        On failure go straight to FAILED (a failed initial plan cannot be recovered).
         """
         try:
             memory_ctx = self._build_memory_context()
             self._dag = self.planner.generate_plan(self._query, memory_ctx)
-            # 从 planner 获取完整的 SubTask 信息（包括 description、search_hints 等）
+            # get the full SubTask info (description, search_hints, etc.) from the planner
             self._task_map = self.planner.get_task_map_from_dag(self._dag, self.planner._last_raw_json)
             if not self._task_map:
-                # 降级：如果解析失败，使用占位符
+                # degrade: if parsing fails, use placeholders
                 self._task_map = self._rebuild_task_map_from_dag()
         except PlanParseError as e:
             print(f"[Planning] Failed: {e}")
@@ -220,20 +220,20 @@ class Orchestrator:
 
         n_tasks = len(self._dag)
         n_layers = len(self._dag.get_parallel_groups()) if self._dag else 0
-        print(f"[Planning] ✓ DAG 生成完成: {n_tasks} 个子任务, {n_layers} 个执行层")
-        # 打印子任务描述以便诊断
+        print(f"[Planning] ✓ DAG generated: {n_tasks} sub-tasks, {n_layers} execution layers")
+        # print the sub-task descriptions for diagnosis
         for tid, task in self._task_map.items():
             print(f"[Planning]   {tid}: {task.description}")
         return OrchestratorState.DISPATCHING
 
     async def _do_dispatching(self) -> OrchestratorState:
-        """拓扑排序 + 并发调度 sub-agents。
+        """Topological sort + concurrent scheduling of sub-agents.
 
-        核心逻辑:
-          1. 获取并行执行层 (parallel groups)
-          2. 每层内用 asyncio.gather + Semaphore 并发执行
-          3. 每个 sub-task 设置单独超时 (asyncio.wait_for)
-          4. 收集结果到 self._results
+        Core logic:
+          1. get the parallel execution layers (parallel groups)
+          2. within each layer run concurrently with asyncio.gather + Semaphore
+          3. each sub-task gets its own timeout (asyncio.wait_for)
+          4. collect the results into self._results
         """
         if self._dag is None or len(self._dag) == 0:
             return OrchestratorState.COLLECTING
@@ -243,9 +243,9 @@ class Orchestrator:
         all_results: list[AgentResult] = []
 
         for layer_idx, group in enumerate(parallel_groups):
-            print(f"[Dispatch] ▶ Layer {layer_idx + 1}/{len(parallel_groups)}: {group} (并行执行)")
+            print(f"[Dispatch] ▶ Layer {layer_idx + 1}/{len(parallel_groups)}: {group} (parallel)")
 
-            # 构建本层的 coroutine 列表
+            # build the coroutine list for this layer
             async def _run_one(task_id: str) -> AgentResult:
                 async with semaphore:
                     subtask = self._task_map.get(task_id)
@@ -256,13 +256,13 @@ class Orchestrator:
                             output=f"SubTask '{task_id}' not found in task_map",
                         )
 
-                    # 准备上下文：先执行依赖任务的结果
+                    # prepare the context: first the results of the dependency tasks
                     context = self._build_task_context(subtask)
 
-                    # 获取 Agent
+                    # get an Agent
                     agent = await self.agent_pool.get_agent(subtask.task_type)
                     try:
-                        # 设置单任务超时
+                        # set the single-task timeout
                         result = await asyncio.wait_for(
                             agent.run(subtask, context),
                             timeout=subtask.timeout_seconds,
@@ -284,14 +284,14 @@ class Orchestrator:
 
                     return result
 
-            # 并发执行本层
+            # run this layer concurrently
             coros = [_run_one(tid) for tid in group]
             layer_results = await asyncio.gather(*coros, return_exceptions=True)
 
             for lr in layer_results:
                 if isinstance(lr, Exception):
-                    # 将异常包装为 FAILED 结果
-                    # 这种情况理论上不会发生（_run_one 内部已捕获），但保险起见
+                    # wrap the exception as a FAILED result
+                    # in theory this cannot happen (_run_one already catches), but just to be safe
                     all_results.append(AgentResult(
                         task_id="unknown",
                         status=AgentStatus.FAILED,
@@ -304,18 +304,18 @@ class Orchestrator:
         return OrchestratorState.COLLECTING
 
     async def _do_collecting(self) -> OrchestratorState:
-        """收集结果，写入 memory，检查是否需要重规划。
+        """Collect results, write them to memory, and check whether re-planning is needed.
 
-        三级降级策略检查点:
-          - 单任务超时/失败：已在 dispatch 层处理（标记状态，继续执行）
-          - >50% 失败：触发 REPLANNING
-          - 全局超时：由外层 run() 的循环检查处理
+        Checkpoints of the three-level degradation strategy:
+          - single-task timeout / failure: already handled in the dispatch layer (mark the status, continue)
+          - >50% failures: trigger REPLANNING
+          - global timeout: handled by the loop check in the outer run()
         """
-        # 将结果写入运行时 memory dict
+        # write the results into the runtime memory dict
         for r in self._results:
             self._memory_store[f"result:{r.task_id}"] = r
 
-        # M4: 将成功结果同步写入 SharedMemoryStore（持久化 + 向量索引）
+        # M4: sync successful results into the SharedMemoryStore (persistence + vector index)
         if self.memory_store is not None:
             for r in self._results:
                 if r.status == AgentStatus.SUCCESS and r.output:
@@ -325,32 +325,32 @@ class Orchestrator:
         total_count = len(self._results)
         fail_count = total_count - success_count
         status_icon = "✓" if success_count == total_count else "⚠"
-        print(f"[Collect] {status_icon} 子任务完成: {success_count}/{total_count} 成功", end="")
+        print(f"[Collect] {status_icon} sub-tasks done: {success_count}/{total_count} succeeded", end="")
         if fail_count > 0:
-            print(f" ({fail_count} 失败)")
+            print(f" ({fail_count} failed)")
         else:
             print()
 
-        # 检查是否需要重规划
+        # check whether re-planning is needed
         if self._should_replan(self._results):
             if self._replan_count < self._config.max_replan_rounds:
                 self._replan_count += 1
                 return OrchestratorState.REPLANNING
             else:
                 print("[Collect] Max replan rounds reached, proceeding with partial results")
-                # 超过最大重规划次数，继续合成（用已有结果）
+                # max re-plan count exceeded, continue to synthesis (with the existing results)
 
         return OrchestratorState.SYNTHESIZING
 
     def _sync_result_to_memory_store(self, result: AgentResult) -> None:
-        """将 AgentResult 同步到 M4 SharedMemoryStore。
+        """Sync an AgentResult into the M4 SharedMemoryStore.
 
-        提取 output 中的关键 claim 作为记忆条目，支持后续语义检索。
+        Extracts the key claim in the output as a memory entry, to support later semantic retrieval.
         """
         try:
-            # 延迟导入避免循环依赖
+            # lazy import to avoid a circular dependency
             from src.memory.long_term import MemoryEntry
-            claim_text = str(result.output)[:500]  # 取前 500 字作为 claim
+            claim_text = str(result.output)[:500]  # take the first 500 chars as the claim
             entry = MemoryEntry(
                 entry_id=result.task_id,
                 claim=claim_text,
@@ -359,7 +359,7 @@ class Orchestrator:
                 agent_id=result.task_id,
                 timestamp=time.time(),
                 evidence_type="primary",
-                embedding=[],  # SharedMemoryStore.put() 会自动生成 embedding
+                embedding=[],  # SharedMemoryStore.put() generates the embedding automatically
                 topic=self._query[:50],
                 metadata={
                     "status": result.status.value,
@@ -372,11 +372,11 @@ class Orchestrator:
             print(f"[M4] Failed to store memory for {result.task_id}: {e}")
 
     async def _do_synthesizing(self) -> OrchestratorState:
-        """调用 SummarizerAgent 合成研究报告。"""
-        # 创建合成任务
+        """Call the SummarizerAgent to synthesize the research report."""
+        # create the synthesis task
         synth_task = SubTask(
             task_id="synthesize_final",
-            task_type=TaskType.ANALYZE,  # 使用 ANALYZE 类型，实际由 SummarizerAgent 处理
+            task_type=TaskType.ANALYZE,  # use the ANALYZE type; it is actually handled by the SummarizerAgent
             description="Synthesize all sub-task results into a final research report.",
             timeout_seconds=300,
         )
@@ -387,11 +387,11 @@ class Orchestrator:
         }
 
         agent = await self.agent_pool.get_agent(TaskType.ANALYZE)
-        # 需要 SummarizerAgent，但 agent_pool 可能返回 ResearcherAgent
-        # 这里我们通过类型检查或强制创建 SummarizerAgent
+        # a SummarizerAgent is needed, but agent_pool may return a ResearcherAgent
+        # here we create a SummarizerAgent through a type check or by force
         from ..agents.summarizer import SummarizerAgent
         if not isinstance(agent, SummarizerAgent):
-            # 优先使用配置的 summarizer_policy（更大的 max_tokens），fallback 到 agent.policy
+            # prefer the configured summarizer_policy (larger max_tokens), fall back to agent.policy
             policy = self.summarizer_policy or agent.policy
             if self.summarizer_factory is not None:
                 agent = self.summarizer_factory(policy, agent.tools)
@@ -421,7 +421,7 @@ class Orchestrator:
         if result.status == AgentStatus.SUCCESS and isinstance(result.output, ResearchReport):
             self._memory_store["final_report"] = result.output
         else:
-            # 合成失败但已有结果，生成降级报告
+            # synthesis failed but results exist, generate a degraded report
             self._memory_store["final_report"] = ResearchReport(
                 query=self._query,
                 content=str(result.output) if result.output else "Synthesis failed.",
@@ -433,45 +433,45 @@ class Orchestrator:
             )
 
         if self._config.enable_adversarial:
-            print("[Synthesize] ✓ 报告合成完成，进入对抗优化")
+            print("[Synthesize] ✓ report synthesized, entering adversarial optimization")
             return OrchestratorState.ADVERSARIAL
-        print("[Synthesize] ✓ 报告合成完成")
+        print("[Synthesize] ✓ report synthesized")
         return OrchestratorState.DONE
 
     async def _do_adversarial(self) -> OrchestratorState:
-        """M5: Red-Blue 对抗降噪循环。
+        """M5: Red-Blue adversarial denoising loop.
 
-        调用 AdversarialLoop 对报告进行 challenge-verify 迭代优化。
-        仅在报告置信度低于阈值时触发，避免资源浪费。
+        Calls the AdversarialLoop to iteratively challenge-and-verify the report.
+        Triggered only when the report confidence is below the threshold, to avoid wasting resources.
         """
         report = self._memory_store.get("final_report")
         if report is None:
             return OrchestratorState.DONE
 
-        # 置信度足够高时跳过对抗
+        # skip the adversarial step when confidence is already high
         if report.confidence >= 0.8:
-            print("[Adversarial] ✓ 报告置信度已达标 (≥0.8)，跳过对抗优化")
+            print("[Adversarial] ✓ report confidence meets the bar (≥0.8), skipping adversarial optimization")
             return OrchestratorState.DONE
 
         if self.adversarial_loop is None:
-            print("[Adversarial] AdversarialLoop 未配置，跳过")
+            print("[Adversarial] AdversarialLoop not configured, skipping")
             return OrchestratorState.DONE
 
         try:
-            print(f"[Adversarial] ▶ 启动 Red-Blue 对抗优化 (当前置信度={report.confidence:.2f})")
+            print(f"[Adversarial] ▶ starting Red-Blue adversarial optimization (current confidence={report.confidence:.2f})")
             optimized_report, history = await self.adversarial_loop.run(report)
             self._memory_store["final_report"] = optimized_report
             self._adversarial_count += len(history)
-            print(f"[Adversarial] ✓ 对抗优化完成: {len(history)} 轮, 最终置信度={optimized_report.confidence:.2f}")
+            print(f"[Adversarial] ✓ adversarial optimization done: {len(history)} rounds, final confidence={optimized_report.confidence:.2f}")
         except Exception as e:
-            print(f"[Adversarial] ✗ 对抗优化失败: {e}，使用原始报告")
+            print(f"[Adversarial] ✗ adversarial optimization failed: {e}, using the original report")
 
         return OrchestratorState.DONE
 
     async def _do_replanning(self) -> OrchestratorState:
-        """触发增量重规划。
+        """Trigger incremental re-planning.
 
-        保留 confidence≥0.6 的成功结果，修改失败子问题。
+        Keeps successful results with confidence≥0.6 and modifies the failed sub-questions.
         """
         failed_tasks = []
         for r in self._results:
@@ -494,11 +494,11 @@ class Orchestrator:
             self._task_map = self.planner.get_task_map_from_dag(self._dag, self.planner._last_raw_json)
             if not self._task_map:
                 self._task_map = self._rebuild_task_map_from_dag()
-            # 清空上一轮结果（保留在 memory 中，新任务可通过 context_keys 引用）
+            # clear the previous round's results (kept in memory; new tasks can reference them via context_keys)
             self._results = []
         except PlanParseError as e:
             print(f"[Replan] Failed: {e}")
-            # 重规划失败，如果已有部分成功结果，尝试直接合成
+            # re-planning failed; if some results succeeded, try to synthesize directly
             if any(r.status == AgentStatus.SUCCESS for r in self._results):
                 return OrchestratorState.SYNTHESIZING
             return OrchestratorState.FAILED
@@ -511,23 +511,23 @@ class Orchestrator:
         return OrchestratorState.DISPATCHING
 
     async def _on_done(self) -> OrchestratorState:
-        """终态，不应再转换。"""
+        """Terminal state, no further transitions."""
         return OrchestratorState.DONE
 
     async def _on_failed(self) -> OrchestratorState:
-        """终态，不应再转换。"""
+        """Terminal state, no further transitions."""
         return OrchestratorState.FAILED
 
     # ------------------------------------------------------------------
-    # 决策逻辑
+    # Decision logic
     # ------------------------------------------------------------------
 
     def _should_replan(self, results: list[AgentResult]) -> bool:
-        """判断是否需要重规划。
+        """Decide whether re-planning is needed.
 
-        策略:
-          - 失败率 > 50% 时触发
-          - 或存在任何 TIMEOUT 且成功结果不足 30%
+        Policy:
+          - triggered when the failure rate is > 50%
+          - or when there is any TIMEOUT and fewer than 30% of results succeeded
         """
         if not results:
             return False
@@ -543,21 +543,21 @@ class Orchestrator:
         return False
 
     # ------------------------------------------------------------------
-    # 辅助方法
+    # Helper methods
     # ------------------------------------------------------------------
 
     def _is_global_timeout(self) -> bool:
-        """检查是否超过全局超时。"""
+        """Check whether the global timeout has been exceeded."""
         elapsed = time.monotonic() - self._start_time
         return elapsed > self._config.global_timeout_seconds
 
     def _build_memory_context(self) -> str:
-        """构建给 planner 的上下文摘要。
+        """Build the context summary for the planner.
 
-        优先使用 M4 SharedMemoryStore 的语义检索（如果已接入），
-        否则回退到运行时 dict 遍历。
+        Prefers semantic retrieval from the M4 SharedMemoryStore (if connected),
+        otherwise falls back to iterating the runtime dict.
         """
-        # M4: 语义检索相关记忆
+        # M4: semantic retrieval of related memories
         if self.memory_store is not None:
             try:
                 ctx = self.memory_store.get_context_for_query(
@@ -569,17 +569,17 @@ class Orchestrator:
             except Exception as e:
                 print(f"[M4] Semantic memory query failed: {e}, falling back to dict")
 
-        # 回退：运行时 dict 遍历
+        # fallback: iterate the runtime dict
         parts = []
         for key, value in self._memory_store.items():
             if key.startswith("result:"):
                 continue
             parts.append(f"{key}: {str(value)[:200]}")
 
-        # M3: 如果上下文过长，启用压缩
+        # M3: enable compression if the context is too long
         if self.compressor is not None and parts:
             total_chars = sum(len(p) for p in parts)
-            if total_chars > 6000:  # 约 2000 tokens 的启发式阈值
+            if total_chars > 6000:  # heuristic threshold of about 2000 tokens
                 try:
                     compressed = self.compressor.compress(
                         texts=parts,
@@ -594,10 +594,10 @@ class Orchestrator:
         return "\n".join(parts) if parts else ""
 
     def _build_task_context(self, subtask: SubTask) -> dict:
-        """为单个 SubTask 构建执行上下文。"""
+        """Build the execution context for a single SubTask."""
         ctx = dict(self._memory_store)
         ctx["query"] = self._query
-        # 注入依赖任务的结果
+        # inject the results of the dependency tasks
         for dep_id in subtask.dependencies:
             dep_key = f"result:{dep_id}"
             if dep_key in self._memory_store:
@@ -605,7 +605,7 @@ class Orchestrator:
         return ctx
 
     def _build_failure_reason(self, results: list[AgentResult]) -> str:
-        """分析失败原因，生成给 replanner 的描述。"""
+        """Analyze the failure reasons and produce a description for the replanner."""
         reasons = []
         timeout_count = sum(1 for r in results if r.status == AgentStatus.TIMEOUT)
         failed_count = sum(1 for r in results if r.status == AgentStatus.FAILED)
@@ -616,10 +616,10 @@ class Orchestrator:
         return "; ".join(reasons) if reasons else "Unknown failure"
 
     def _rebuild_task_map_from_dag(self) -> dict[str, SubTask]:
-        """从 DAG 重建 task_map（当缺少原始 SubTask 信息时使用占位符）。
+        """Rebuild the task_map from the DAG (using placeholders when the original SubTask info is missing).
 
-        实际场景中，planner 应返回完整的 SubTask 列表；
-        这里作为降级：为 DAG 中每个节点创建默认 SubTask。
+        In real use the planner should return the full SubTask list;
+        this is a fallback: create a default SubTask for each node in the DAG.
         """
         if self._dag is None:
             return {}
@@ -628,7 +628,7 @@ class Orchestrator:
         for node_id in self._dag:
             deps = self._dag.get_dependencies(node_id)
             if node_id not in self._task_map:
-                # 新建占位 SubTask
+                # create a new placeholder SubTask
                 task_map[node_id] = SubTask(
                     task_id=node_id,
                     task_type=TaskType.SEARCH,
@@ -636,7 +636,7 @@ class Orchestrator:
                     dependencies=deps,
                 )
             else:
-                # 保留已有信息，更新依赖
+                # keep existing info, update the dependencies
                 old = self._task_map[node_id]
                 task_map[node_id] = SubTask(
                     task_id=old.task_id,

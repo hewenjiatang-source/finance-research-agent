@@ -1,19 +1,19 @@
 """
-XBRL 指标注册表与取数逻辑（纯函数，不依赖网络）。
+XBRL metric registry and data-selection logic (pure functions, no network access).
 
-被两处共用：
-  1. ``src/tools/sec_edgar.py`` —— 把 SEC ``companyfacts`` JSON 转成 Agent 可读的结构化数值；
-  2. ``evaluation/finance/gold.py`` —— 从同一类数据生成评测的金标准。
+Shared by two consumers:
+  1. ``src/tools/sec_edgar.py`` — turns SEC ``companyfacts`` JSON into structured values the agent can read;
+  2. ``evaluation/finance/gold.py`` — generates the evaluation gold from the same kind of data.
 
-重要的 XBRL 细节（踩坑点，已在 select_period 中处理）:
-  * ``fy`` / ``fp`` 描述的是 **申报文件** 的财年/财期（DocumentFiscalYearFocus），而不是该数值所属期间。
-    同一份 10-K 里既有本期也有上期对比值，它们的 ``fy`` 相同、``end`` 不同。
-    因此必须先锁定申报（accn），再按 ``end`` 与持续时长挑选本期 / 上期。
-  * 流量类指标（收入、净利润、现金流）需要按持续时长筛选：年度 ~365 天，单季 ~91 天；
-    10-Q 里还会有 6 个月、9 个月累计值，不筛选就会取错。
-  * 存量类指标（总资产、现金）是时点值，没有 ``start``。
-  * 同一事实可能被多份申报重复披露（含 10-K/A 修订），这里只取原始 10-K / 10-Q，
-    且同一期间多条时取最新 ``filed``。
+Important XBRL details (pitfalls, handled in select_period):
+  * ``fy`` / ``fp`` describe the fiscal year / period of the **filing** (DocumentFiscalYearFocus), not of the period the value belongs to.
+    One 10-K holds both the current and the prior-period comparative values; they share the same ``fy`` but have different ``end``.
+    So the filing (accn) must be locked first, then current / prior picked by ``end`` and duration.
+  * Flow metrics (revenue, net income, cash flow) must be filtered by duration: ~365 days for a year, ~91 days for a quarter;
+    a 10-Q also carries 6-month and 9-month cumulative values, which would be picked wrongly without filtering.
+  * Stock metrics (total assets, cash) are point-in-time values and have no ``start``.
+  * The same fact may be disclosed repeatedly by several filings (including 10-K/A amendments); only original 10-K / 10-Q are used here,
+    and when one period has several rows the latest ``filed`` wins.
 """
 from __future__ import annotations
 
@@ -30,9 +30,9 @@ __all__ = [
 ]
 
 
-# kind: flow = 期间流量；instant = 时点存量
-# unit: companyfacts 里的 units 键
-# en / zh: 报告文本里的常见说法，用于评测的启发式映射与工具的模糊匹配
+# kind: flow = flow over a period; instant = point-in-time stock
+# unit: the key under units in companyfacts
+# en / zh: common phrasings in report text, used for the evaluation's heuristic mapping and the tool's fuzzy matching (the Chinese aliases are intentional)
 METRICS: dict[str, dict] = {
     "revenue": {
         "concepts": ["RevenueFromContractWithCustomerExcludingAssessedTax", "Revenues", "SalesRevenueNet", "SalesRevenueGoodsNet"],
@@ -138,7 +138,7 @@ def metric_names() -> list[str]:
 
 
 def resolve_metric(name: str) -> str | None:
-    """把用户/模型给的指标名（含中英文别名、us-gaap 概念名）解析成注册表 key。"""
+    """Resolve a metric name given by a user/model (English or Chinese aliases, us-gaap concept names) to a registry key."""
     if not name:
         return None
     key = name.strip().lower().replace(" ", "_").replace("-", "_")
@@ -188,7 +188,7 @@ def _duration_ok(kind: str, start: str | None, end: str, fp: str) -> bool:
     days = (de - ds).days
     if fp == "FY":
         return 350 <= days <= 380
-    return 80 <= days <= 100  # 单季度（排除 6M/9M 累计）
+    return 80 <= days <= 100  # single quarter (excludes 6M/9M cumulative)
 
 
 def _entries(facts: dict, concept: str, unit: str) -> list[dict]:
@@ -204,10 +204,10 @@ def select_period(
     fiscal_year: int,
     fiscal_period: str = "FY",
 ) -> list[FactValue]:
-    """从 companyfacts 中取某指标在 (财年, 财期) 的本期值与上年同期对比值。
+    """From companyfacts, get a metric's current value and prior-year comparative for (fiscal year, fiscal period).
 
     Returns:
-        最多两个 FactValue：[本期, 上年同期]（取不到的省略）。取不到本期时返回空列表。
+        At most two FactValue: [current, prior-year] (omitted if not found). Returns an empty list if the current value is not found.
     """
     spec = METRICS.get(metric)
     if spec is None:
@@ -226,7 +226,7 @@ def select_period(
         if not rows:
             continue
 
-        # 锁定申报：同一财期可能有多份（含重复披露），取最新 filed 的 accn
+        # lock the filing: one fiscal period may have several (including repeated disclosures); take the accn with the latest filed
         latest_accn = max(rows, key=lambda r: (r.get("filed", ""), r.get("accn", ""))).get("accn")
         in_filing = [r for r in rows if r.get("accn") == latest_accn and _duration_ok(kind, r.get("start"), r["end"], fiscal_period)]
         if not in_filing:
@@ -236,7 +236,7 @@ def select_period(
         cur = next(r for r in in_filing if r["end"] == cur_end)
         out = [_to_fact(metric, concept, unit, cur, fiscal_year, fiscal_period, current=True)]
 
-        # 上年同期：同申报内 end 约早一年（±20 天）的那条
+        # prior-year period: the row in the same filing whose end is about one year earlier (+-20 days)
         ce = _d(cur_end)
         prior = None
         for r in in_filing:
@@ -272,7 +272,7 @@ def _to_fact(metric: str, concept: str, unit: str, row: dict, fy: int, fp: str, 
 
 
 def format_value(value: float, unit: str) -> str:
-    """给人/模型看的可读形式，例如 383285000000 USD -> '383,285.0 million USD'。"""
+    """Human/model-readable form, e.g. 383285000000 USD -> '383,285.0 million USD'."""
     if unit == "USD":
         a = abs(value)
         if a >= 1e9:

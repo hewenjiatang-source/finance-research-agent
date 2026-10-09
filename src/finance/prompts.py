@@ -1,9 +1,9 @@
-"""财报 / 金融文档研究场景的 Prompt 集中地。
+"""Central place for the financial-filings research prompts.
 
-设计原则（对应评测里测的两件事）:
-  * 引用核对 —— 每条事实后面跟 [evidence_id]，且只能引用工具真正返回过的 id；
-  * 数据准确性 —— 数字原样抄录（数字/单位/量级/符号/期间），派生数字必须走 calculator，
-    查不到就写"未检索到"，绝不凭记忆补数。
+Design principles (matching the two things the evaluation measures):
+  * Citation verification — every fact is followed by [evidence_id], and only ids that tools really returned may be cited;
+  * Data accuracy — numbers are copied verbatim (digits / unit / scale / sign / period), derived numbers must go through the calculator,
+    and anything not found is written as "not found in retrieved sources", never filled in from memory.
 """
 from __future__ import annotations
 

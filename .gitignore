@@ -137,16 +137,16 @@ dmypy.json
 cython_debug/
 
 # =============================================================================
-# 项目特定忽略
+# Project-specific ignores
 # =============================================================================
 
-# 数据文件与数据库
+# Data files and databases
 data/
 *.db
 *.sqlite
 *.sqlite3
 
-# 模型检查点与大文件
+# Model checkpoints and large files
 checkpoints/
 *.ckpt
 *.pt
@@ -154,19 +154,19 @@ checkpoints/
 *.bin
 *.safetensors
 
-# 输出与日志
+# Outputs and logs
 logs/
 
-# 实验记录
+# Experiment records
 experiments/*/results/
 experiments/*/checkpoints/
 
-# 临时文件
+# Temporary files
 tmp/
 temp/
 *.tmp
 
-# 本地环境变量覆盖（包含敏感 API Key，绝不能提交）
+# Local environment overrides (contain secret API keys, never commit)
 .env.local
 .env.*.local
 
@@ -180,16 +180,16 @@ temp/
 *.swo
 *~
 
-# 实验运行时产生的大文件
+# Large files produced by experiment runs
 logs/
 
-# 本地数据库与数据文件
+# Local databases and data files
 data/
 *.db
 *.sqlite
 *.sqlite3
 
-# 模型检查点与大文件
+# Model checkpoints and large files
 checkpoints/
 *.ckpt
 *.pt
@@ -197,19 +197,19 @@ checkpoints/
 *.bin
 *.safetensors
 
-# 临时文件
+# Temporary files
 tmp/
 temp/
 *.tmp
 
-# 测试覆盖率
+# Test coverage
 htmlcov/
 .coverage
 .pytest_cache/
 
 # mypy
 .mypy_cache/
-# 忽略所有日志文件（包括 outputs 子目录中的）
+# Ignore all log files (including those in outputs subdirectories)
 *.log
-# 保留 outputs 目录下的报告文件，只忽略日志
+# Keep report files under outputs, ignore only logs
 outputs/**/*.log

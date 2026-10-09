@@ -1,8 +1,8 @@
 """
-VLLM Policy — OpenAI API 封装
+VLLM Policy — OpenAI API wrapper
 
-直接复用项目一实现，增加 from __future__ import annotations 以保持 Python 3.10+ 兼容性。
-接口保持完全一致：
+Reuses the project-one implementation, adding from __future__ import annotations to keep Python 3.10+ compatible.
+The interface stays exactly the same:
   - __call__(messages) -> OpenAICompatibleDict
   - set_tools(tools)
   - _truncate_messages(messages, max_chars)
@@ -17,15 +17,15 @@ from typing import Optional
 __all__ = ["VLLMPolicy", "OpenAICompatibleDict"]
 
 
-# 正则表达式：用于抠出 Qwen 在标签外输出废话时的工具指令
+# regex: extract tool instructions when Qwen emits chatter outside the tags
 TOOL_CALL_PATTERN = re.compile(r"<tool_call>\s*(.*?)\s*</tool_call>", re.DOTALL)
 
-# [质量过滤器] Assistant 绝不应该输出这些模板标记
-# 如果检测到，整条 trajectory 标记为污染（复用 was_truncated 通道）
+# [quality filter] the assistant must never output these template markers
+# if detected, the whole trajectory is marked contaminated (reusing the was_truncated channel)
 FORBIDDEN_TEMPLATE_TOKENS = ["</tool_response>", "<tool_response>"]
 
 
-# 万能兼容类：让字典支持 .content 和 .tool_calls 访问
+# universal compatibility class: lets a dict support .content and .tool_calls access
 class OpenAICompatibleDict(dict):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -33,13 +33,13 @@ class OpenAICompatibleDict(dict):
 
 
 class VLLMPolicy:
-    """VLLM Policy：封装 OpenAI 兼容 API（vLLM / OpenAI）。
+    """VLLM Policy: wraps OpenAI-compatible APIs (vLLM / OpenAI).
 
-    核心能力:
-      - 消息格式清洗与合并（防止 vLLM 400）
-      - 主动截断（保留 system + 最近交互，丢弃旧轮次）
-      - 工具调用解析（原生 + 正则回退）
-      - 错误分类处理（上下文超限抛异常，其他错误返回假 assistant）
+    Core capabilities:
+      - message format cleaning and merging (prevents vLLM 400)
+      - proactive truncation (keep system + recent interaction, drop old turns)
+      - tool-call parsing (native + regex fallback)
+      - error classification (context overflow raises, other errors return a fake assistant)
     """
 
     def __init__(
@@ -52,10 +52,10 @@ class VLLMPolicy:
         max_tokens: int = 1024,
         tools: Optional[list[dict]] = None,
     ):
-        from openai import OpenAI  # 懒加载：仅在使用 OpenAI 兼容后端时才需要安装 openai
+        from openai import OpenAI  # lazy import: openai only needs to be installed when using OpenAI-compatible backends
 
         raw_client = OpenAI(base_url=base_url, api_key=api_key)
-        # 如果 LangSmith 追踪开启，自动包装 client 以追踪所有 LLM 调用
+        # if LangSmith tracing is on, automatically wrap the client to trace all LLM calls
         from ..utils.tracing import maybe_wrap_openai_client
         self.client = maybe_wrap_openai_client(raw_client)
         self.model_name = model_name
@@ -63,18 +63,18 @@ class VLLMPolicy:
         self.top_p = top_p
         self.max_tokens = max_tokens
         self.tools = tools
-        # [污染标记] 一旦发生过主动截断，整条 trajectory 作废
+        # [contamination flag] once proactive truncation has happened, the whole trajectory is void
         self.was_truncated = False
 
     def set_tools(self, tools: list[dict]) -> None:
-        """注册可用工具（OpenAI function calling schema）。"""
+        """Register available tools (OpenAI function calling schema)."""
         self.tools = tools
 
     def _truncate_messages(self, messages: list, max_chars: int = 35000) -> list:
-        """主动截断：保留 system + 最近交互，逐步丢弃旧轮次。
+        """Proactive truncation: keep system + recent interaction, gradually dropping old turns.
 
-        阈值 35000 字符 ≈ 11-12K content tokens（ratio 2.5-3.0 + overhead + tool metadata）。
-        截断是"丢弃旧轮次"而非截断内容，避免在消息中间切断导致语义破碎。
+        Threshold 35000 chars ≈ 11-12K content tokens (ratio 2.5-3.0 + overhead + tool metadata).
+        Truncation means "drop old turns" rather than cutting content, to avoid slicing a message in the middle and breaking its meaning.
         """
         system_msgs = [m for m in messages if isinstance(m, dict) and m.get("role") == "system"]
         other_msgs = [m for m in messages if not (isinstance(m, dict) and m.get("role") == "system")]
@@ -84,15 +84,15 @@ class VLLMPolicy:
             for m in msgs:
                 if not isinstance(m, dict):
                     continue
-                # 1. content 字符数
+                # 1. content character count
                 total += len(str(m.get("content", "")))
-                # 2. assistant message 的 tool_calls 中 arguments + name（这些是 token 大户但被遗漏）
+                # 2. arguments + name in the assistant message's tool_calls (a big token consumer that was previously missed)
                 if m.get("role") == "assistant" and m.get("tool_calls"):
                     for tc in m["tool_calls"]:
                         func = tc.get("function", {})
                         total += len(str(func.get("arguments", "")))
                         total += len(str(func.get("name", "")))
-                # 3. tool message 的 metadata（较短但也计入）
+                # 3. tool message metadata (short but counted too)
                 if m.get("role") == "tool":
                     total += len(str(m.get("tool_call_id", "")))
                     total += len(str(m.get("name", "")))
@@ -106,13 +106,13 @@ class VLLMPolicy:
         print(f"[TRUNCATE] Triggered: {before_chars} chars > {max_chars} threshold. n_msgs={len(messages)}")
         print(f"[TRUNCATE] System msgs: {len(system_msgs)}, Other msgs: {len(other_msgs)}")
 
-        # 策略：从 other_msgs 的头部开始丢弃旧消息，保留最近交互
-        # 但保证至少保留 system + 最近 3 条（否则上下文完全丢失）
-        # 关键：不能拆开 assistant(tool_calls) 和后面紧跟的 tool 消息
+        # Strategy: drop old messages starting from the head of other_msgs, keep the recent interaction
+        # but always keep at least system + the last 3 (otherwise context is lost entirely)
+        # Key: an assistant(tool_calls) must not be separated from the tool messages right after it
         kept = list(other_msgs)
         while len(kept) > 3:
             removed = kept.pop(0)
-            # 如果丢弃了带 tool_calls 的 assistant，后面连续的 tool 消息也必须一起丢
+            # if an assistant with tool_calls is dropped, the consecutive tool messages after it must be dropped too
             if isinstance(removed, dict) and removed.get("role") == "assistant" and removed.get("tool_calls"):
                 while kept and isinstance(kept[0], dict) and kept[0].get("role") == "tool":
                     kept.pop(0)
@@ -121,15 +121,15 @@ class VLLMPolicy:
                 print(f"[TRUNCATE] Reduced to {after_chars} chars, kept {len(kept)} non-system msgs")
                 return system_msgs + kept
 
-        # 极端情况：即使只保留 system + 最后 3 条也超阈值
-        # 对最后一条（最新的交互）做内容级截断兜底
+        # Extreme case: still over the threshold even with only system + the last 3 kept
+        # apply content-level truncation to the last message (the newest interaction) as a fallback
         after_chars = _count_chars(system_msgs + kept)
         if after_chars > max_chars and kept:
-            # 截断最后一条 message 的 content（通常是超长的 tool result）
+            # truncate the content of the last message (usually a very long tool result)
             last_msg = kept[-1]
             excess = after_chars - max_chars
             content = str(last_msg.get("content", ""))
-            new_len = max(len(content) - excess - 100, 500)  # 留 100 字符缓冲，至少保留 500
+            new_len = max(len(content) - excess - 100, 500)  # leave a 100-char buffer, keep at least 500
             last_msg["content"] = content[:new_len] + "\n[CONTENT_TRUNCATED]"
             final_chars = _count_chars(system_msgs + kept)
             print(f"[TRUNCATE] Content-truncated last msg to {new_len} chars. Final: {final_chars}")
@@ -138,42 +138,42 @@ class VLLMPolicy:
         return system_msgs + kept
 
     def __call__(self, messages: list) -> OpenAICompatibleDict:
-        """调用 LLM，返回 OpenAI 兼容格式消息。
+        """Call the LLM and return an OpenAI-compatible message.
 
         Args:
-            messages: OpenAI 格式的消息列表。
+            messages: list of OpenAI-format messages.
 
         Returns:
-            OpenAICompatibleDict: 包含 role, content, tool_calls 字段。
+            OpenAICompatibleDict: with the role, content and tool_calls fields.
         """
-        # 1. 深度清洗消息格式
+        # 1. deep-clean the message format
         sanitized = []
         for m in messages:
             role, content = "user", ""
             if isinstance(m, dict):
                 role, content = m.get("role", "user"), m.get("content", "")
             elif isinstance(m, (list, tuple)) and len(m) == 2:
-                # 修复核心报错：处理 ['observation', '...'] 这种元组格式
+                # fix the core error: handle tuples like ['observation', '...']
                 role = "user" if m[0] in ["observation", "user"] else "assistant"
                 content = str(m[1])
 
-            # 过滤环境内部泄露的 Task 对象信息，防止干扰模型
+            # filter out leaked internal Task object info so it does not disturb the model
             if "task=Task(" in str(content):
                 continue
 
             new_msg = {"role": role, "content": str(content)}
-            # 保留 assistant 的 tool_calls 和 tool 的元数据，否则 vLLM 会报 400
+            # keep assistant tool_calls and tool metadata, otherwise vLLM returns 400
             if role == "assistant" and m.get("tool_calls"):
                 new_msg["tool_calls"] = m["tool_calls"]
-            # 保留 reasoning_content（DeepSeek 推理模型需要）
+            # keep reasoning_content (needed by DeepSeek reasoning models)
             if role == "assistant" and m.get("reasoning_content"):
                 new_msg["reasoning_content"] = m["reasoning_content"]
             if role == "tool":
                 new_msg["tool_call_id"] = m.get("tool_call_id", "")
                 new_msg["name"] = m.get("name", "")
 
-            # 合并连续的同角色消息，防止 vLLM 400 报错
-            # 但包含 tool_calls / tool_call_id 的消息不能合并，否则字段会丢失
+            # merge consecutive same-role messages to prevent vLLM 400 errors
+            # but messages carrying tool_calls / tool_call_id cannot be merged, or those fields would be lost
             can_merge = (
                 sanitized
                 and sanitized[-1]["role"] == role
@@ -187,11 +187,11 @@ class VLLMPolicy:
             else:
                 sanitized.append(new_msg)
 
-        # 2. 主动截断（16K 约束下的质量过滤器）
-        # 阈值 12-13K content tokens ≈ 40000 字符（ratio 2.8-3.2 + overhead）
+        # 2. proactive truncation (quality filter under the 16K constraint)
+        # threshold 12-13K content tokens ≈ 40000 chars (ratio 2.8-3.2 + overhead)
         sanitized = self._truncate_messages(sanitized, max_chars=35000)
 
-        # 3. 发送请求
+        # 3. send the request
         kwargs = dict(
             model=self.model_name,
             messages=sanitized,
@@ -208,14 +208,14 @@ class VLLMPolicy:
             raw_msg = resp.choices[0].message
             content = raw_msg.content or ""
 
-            # 4. [FORBIDDEN] 检测 assistant 是否输出了不该出现的模板标记
+            # 4. [FORBIDDEN] detect whether the assistant output template markers it should not
             for forbidden in FORBIDDEN_TEMPLATE_TOKENS:
                 if forbidden in content:
                     print(f"[FORBIDDEN] Detected '{forbidden}' in assistant content, marking trajectory as contaminated")
                     self.was_truncated = True
                     break
 
-            # 5. 解析工具调用 (带正则回退)
+            # 5. parse tool calls (with regex fallback)
             final_tool_calls = []
             if raw_msg.tool_calls:
                 for tc in raw_msg.tool_calls:
@@ -235,7 +235,7 @@ class VLLMPolicy:
                     except Exception:
                         continue
 
-            # 6. 返回万能对象
+            # 6. return the universal object
             result = OpenAICompatibleDict(role="assistant", content=content, tool_calls=final_tool_calls)
             if getattr(raw_msg, "reasoning_content", None):
                 result["reasoning_content"] = raw_msg.reasoning_content
@@ -246,7 +246,7 @@ class VLLMPolicy:
             err_lower = err_str.lower()
             print(f"Policy Error: {err_str}")
 
-            # Context 超限：确定性错误，立刻中止 trajectory（不继续浪费采样）
+            # context overflow: deterministic error, abort the trajectory at once (do not waste more sampling)
             if "maximum context length" in err_lower or "context length" in err_lower:
                 n_msgs = len(messages)
                 total_chars = sum(len(str(m.get("content", ""))) for m in messages if isinstance(m, dict))
@@ -254,7 +254,7 @@ class VLLMPolicy:
                     f"[CONTEXT_LENGTH_EXCEEDED] n_msgs={n_msgs}, est_chars={total_chars}: {err_str}"
                 ) from e
 
-            # 其他错误（网络抖动、vLLM 临时 busy 等）：返回假 assistant，让 trajectory 有机会继续
+            # other errors (network jitter, vLLM temporarily busy, etc.): return a fake assistant so the trajectory can continue
             return OpenAICompatibleDict(
                 role="assistant",
                 content=f"Error: {err_str}",

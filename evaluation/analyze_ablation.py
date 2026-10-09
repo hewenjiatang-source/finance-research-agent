@@ -3,14 +3,14 @@
 """
 evaluation/analyze_ablation.py
 ================================================================================
-消融实验分析脚本。
+Ablation experiment analysis script.
 
-分析以下维度的消融结果：
-1. 对抗降噪轮数：0轮 vs 1轮 vs 2轮 vs 3轮
-2. 自进化：关闭 vs 开启
-3. 其他模块（可选）
+Analyzes ablation results along these dimensions:
+1. Number of adversarial denoising rounds: 0 vs 1 vs 2 vs 3
+2. Self-evolution: off vs on
+3. Other modules (optional)
 
-支持绘制对比柱状图、折线图，并输出统计报告。
+Supports drawing comparison bar and line charts and outputs a statistics report.
 ================================================================================
 """
 
@@ -26,7 +26,7 @@ import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 
-matplotlib.use("Agg")  # 无 GUI 环境使用 Agg 后端
+matplotlib.use("Agg")  # use the Agg backend in environments without a GUI
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if PROJECT_ROOT not in sys.path:
@@ -34,23 +34,23 @@ if PROJECT_ROOT not in sys.path:
 
 
 class AblationAnalyzer:
-    """消融实验结果分析器。"""
+    """Ablation experiment result analyzer."""
 
     def __init__(self, output_dir: str = "outputs/evaluation") -> None:
         self.output_dir = output_dir
         os.makedirs(output_dir, exist_ok=True)
 
     # -----------------------------------------------------------------------
-    # 数据加载
+    # Data loading
     # -----------------------------------------------------------------------
     @staticmethod
     def load_results(path: str) -> dict[str, Any]:
-        """从 JSON 文件加载评测结果。"""
+        """Load evaluation results from a JSON file."""
         with open(path, "r", encoding="utf-8") as f:
             return json.load(f)
 
     # -----------------------------------------------------------------------
-    # 对抗轮数消融分析
+    # Adversarial-rounds ablation analysis
     # -----------------------------------------------------------------------
     def analyze_adversarial_rounds(
         self,
@@ -58,14 +58,14 @@ class AblationAnalyzer:
         save_prefix: str = "ablation_adversarial",
     ) -> dict[str, Any]:
         """
-        分析对抗降噪轮数对综合得分的影响。
+        Analyze the effect of the number of adversarial denoising rounds on the composite score.
 
         Args:
-            results: 评测结果字典，键应包含 "adv_0", "adv_1", "adv_2", "adv_3" 等。
-            save_prefix: 保存图片的文件名前缀。
+            results: evaluation result dict; keys should include "adv_0", "adv_1", "adv_2", "adv_3", etc.
+            save_prefix: filename prefix for saved figures.
 
         Returns:
-            统计分析结果字典。
+            Statistical analysis result dict.
         """
         rounds = []
         scores = []
@@ -77,10 +77,10 @@ class AblationAnalyzer:
                 scores.append(results[key])
 
         if not rounds:
-            print("[AblationAnalyzer] 未找到对抗轮数数据")
+            print("[AblationAnalyzer] No adversarial-rounds data found")
             return {}
 
-        # 绘制折线图
+        # Draw the line chart
         fig, ax = plt.subplots(figsize=(8, 5))
         ax.plot(rounds, scores, marker="o", linewidth=2, markersize=8, color="#2E86AB")
         ax.set_xlabel("Adversarial Rounds", fontsize=12)
@@ -94,7 +94,7 @@ class AblationAnalyzer:
         fig.tight_layout()
         fig.savefig(save_path, dpi=300)
         plt.close(fig)
-        print(f"[AblationAnalyzer] 图表已保存: {save_path}")
+        print(f"[AblationAnalyzer] Chart saved: {save_path}")
 
         return {
             "dimension": "adversarial_rounds",
@@ -105,7 +105,7 @@ class AblationAnalyzer:
         }
 
     # -----------------------------------------------------------------------
-    # 自进化消融分析
+    # Self-evolution ablation analysis
     # -----------------------------------------------------------------------
     def analyze_evolution(
         self,
@@ -113,14 +113,14 @@ class AblationAnalyzer:
         save_prefix: str = "ablation_evolution",
     ) -> dict[str, Any]:
         """
-        分析自进化开启/关闭的影响。
+        Analyze the effect of turning self-evolution on/off.
 
         Args:
-            results: 评测结果字典，应包含 "evo_off" 和 "evo_on" 键。
-            save_prefix: 保存图片的文件名前缀。
+            results: evaluation result dict; should contain the "evo_off" and "evo_on" keys.
+            save_prefix: filename prefix for saved figures.
 
         Returns:
-            统计分析结果字典。
+            Statistical analysis result dict.
         """
         labels = []
         scores = []
@@ -131,10 +131,10 @@ class AblationAnalyzer:
                 scores.append(results[key])
 
         if not labels:
-            print("[AblationAnalyzer] 未找到自进化消融数据")
+            print("[AblationAnalyzer] No self-evolution ablation data found")
             return {}
 
-        # 绘制柱状图
+        # Draw the bar chart
         fig, ax = plt.subplots(figsize=(6, 5))
         colors = ["#E94F37", "#6A994E"]
         bars = ax.bar(labels, scores, color=colors, width=0.5, edgecolor="black")
@@ -142,7 +142,7 @@ class AblationAnalyzer:
         ax.set_title("Impact of Self-Evolution Engine", fontsize=14)
         ax.set_ylim([0.0, 1.0])
 
-        # 在柱子上方标注数值
+        # Annotate values above the bars
         for bar, score in zip(bars, scores):
             height = bar.get_height()
             ax.annotate(
@@ -159,7 +159,7 @@ class AblationAnalyzer:
         fig.tight_layout()
         fig.savefig(save_path, dpi=300)
         plt.close(fig)
-        print(f"[AblationAnalyzer] 图表已保存: {save_path}")
+        print(f"[AblationAnalyzer] Chart saved: {save_path}")
 
         return {
             "dimension": "evolution",
@@ -169,7 +169,7 @@ class AblationAnalyzer:
         }
 
     # -----------------------------------------------------------------------
-    # 综合消融报告
+    # Comprehensive ablation report
     # -----------------------------------------------------------------------
     def generate_report(
         self,
@@ -178,15 +178,15 @@ class AblationAnalyzer:
         output_name: str = "ablation_analysis.json",
     ) -> str:
         """
-        生成综合消融分析报告。
+        Generate a comprehensive ablation analysis report.
 
         Args:
-            adversarial_results: 对抗消融结果。
-            evolution_results: 进化消融结果。
-            output_name: 输出 JSON 文件名。
+            adversarial_results: adversarial ablation results.
+            evolution_results: evolution ablation results.
+            output_name: output JSON file name.
 
         Returns:
-            保存的文件路径。
+            Path of the saved file.
         """
         report = {
             "adversarial": adversarial_results or {},
@@ -197,16 +197,16 @@ class AblationAnalyzer:
         with open(path, "w", encoding="utf-8") as f:
             json.dump(report, f, ensure_ascii=False, indent=2)
 
-        print(f"[AblationAnalyzer] 消融分析报告已保存: {path}")
+        print(f"[AblationAnalyzer] Ablation analysis report saved: {path}")
         return path
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="消融实验分析脚本",
+        description="Ablation experiment analysis script",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-示例:
+Examples:
   python evaluation/analyze_ablation.py --adv_results outputs/evaluation/adv_results.json
         """,
     )
@@ -214,19 +214,19 @@ def main() -> None:
         "--adv_results",
         type=str,
         default=None,
-        help="对抗轮数消融结果 JSON 文件路径（格式：{\"adv_0\": 0.6, \"adv_1\": 0.72, ...}）",
+        help="Path to the adversarial-rounds ablation result JSON (format: {\"adv_0\": 0.6, \"adv_1\": 0.72, ...})",
     )
     parser.add_argument(
         "--evo_results",
         type=str,
         default=None,
-        help="自进化消融结果 JSON 文件路径（格式：{\"evo_off\": 0.65, \"evo_on\": 0.75}）",
+        help="Path to the self-evolution ablation result JSON (format: {\"evo_off\": 0.65, \"evo_on\": 0.75})",
     )
     parser.add_argument(
         "--output_dir",
         type=str,
         default="outputs/evaluation",
-        help="图表和报告输出目录",
+        help="Output directory for charts and reports",
     )
     args = parser.parse_args()
 
@@ -243,9 +243,9 @@ def main() -> None:
         evo_data = analyzer.load_results(args.evo_results)
         evo_report = analyzer.analyze_evolution(evo_data)
 
-    # 如果没有提供文件，生成示例数据进行演示
+    # If no file is provided, generate sample data for a demo
     if adv_report is None and evo_report is None:
-        print("[main] 未提供输入数据，使用示例数据生成演示图表...")
+        print("[main] No input data provided; generating demo charts from sample data...")
         adv_report = analyzer.analyze_adversarial_rounds(
             {"adv_0": 0.62, "adv_1": 0.71, "adv_2": 0.78, "adv_3": 0.80}
         )

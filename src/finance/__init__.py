@@ -1,6 +1,6 @@
-"""财报 / 金融文档研究场景：XBRL 取数、证据账本、财报专用 Agent。
+"""Financial-filings research scenario: XBRL data access, evidence ledger, finance-specific agents.
 
-保持本包 import 轻量（不在顶层引入 aiohttp / anthropic 等重依赖）。
+Keep this package's imports light (no heavy top-level dependencies such as aiohttp / anthropic).
 """
 from __future__ import annotations
 

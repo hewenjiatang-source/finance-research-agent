@@ -3,10 +3,10 @@
 """
 evaluation/benchmarks/research_bench.py
 ================================================================================
-自建深度研究评测集 (ResearchBench)。
+Self-built deep-research benchmark (ResearchBench).
 
-包含 20 道跨领域（科技、医疗、金融等）深度研究题目。
-每道题附带 expected_topics（期望覆盖的子主题）和 ground_truth（关键事实）。
+Contains 20 cross-domain deep-research questions (technology, medicine, finance, etc.).
+Each question comes with expected_topics (sub-topics expected to be covered) and ground_truth (key facts).
 ================================================================================
 """
 
@@ -19,10 +19,10 @@ from typing import Any
 
 class ResearchBench:
     """
-    自建深度研究评测集。
+    Self-built deep-research benchmark.
     """
 
-    # 内置 20 道评测题
+    # Built-in 20 evaluation questions
     DEFAULT_QUESTIONS: list[dict[str, Any]] = [
         {
             "id": "tech_001",
@@ -229,7 +229,7 @@ class ResearchBench:
             },
         },
         # ------------------------------------------------------------------
-        # 教育 (2题)
+        # Education (2 questions)
         # ------------------------------------------------------------------
         {
             "id": "edu_001",
@@ -254,7 +254,7 @@ class ResearchBench:
             },
         },
         # ------------------------------------------------------------------
-        # 法律 (2题)
+        # Law (2 questions)
         # ------------------------------------------------------------------
         {
             "id": "law_001",
@@ -279,7 +279,7 @@ class ResearchBench:
             },
         },
         # ------------------------------------------------------------------
-        # 能源 (2题)
+        # Energy (2 questions)
         # ------------------------------------------------------------------
         {
             "id": "energy_001",
@@ -304,7 +304,7 @@ class ResearchBench:
             },
         },
         # ------------------------------------------------------------------
-        # 消费零售 (2题)
+        # Consumer retail (2 questions)
         # ------------------------------------------------------------------
         {
             "id": "retail_001",
@@ -329,7 +329,7 @@ class ResearchBench:
             },
         },
         # ------------------------------------------------------------------
-        # 汽车 (2题)
+        # Automotive (2 questions)
         # ------------------------------------------------------------------
         {
             "id": "auto_001",
@@ -354,7 +354,7 @@ class ResearchBench:
             },
         },
         # ------------------------------------------------------------------
-        # 游戏 (2题)
+        # Gaming (2 questions)
         # ------------------------------------------------------------------
         {
             "id": "game_001",
@@ -379,7 +379,7 @@ class ResearchBench:
             },
         },
         # ------------------------------------------------------------------
-        # 传媒 (1题)
+        # Media (1 question)
         # ------------------------------------------------------------------
         {
             "id": "media_001",
@@ -418,10 +418,10 @@ class ResearchBench:
 
     def __init__(self, data_path: str | None = None) -> None:
         """
-        初始化评测集。
+        Initialize the benchmark.
 
         Args:
-            data_path: 外部 JSON 文件路径。若为 None 则使用内置题库。
+            data_path: Path to an external JSON file. If None, the built-in question bank is used.
         """
         if data_path and os.path.exists(data_path):
             with open(data_path, "r", encoding="utf-8") as f:
@@ -435,14 +435,14 @@ class ResearchBench:
         n: int | None = None,
     ) -> list[dict[str, Any]]:
         """
-        获取评测题目。
+        Get evaluation questions.
 
         Args:
-            domain: 按领域过滤（科技/医疗/金融）。
-            n: 返回前 n 道题。
+            domain: Filter by domain (科技/医疗/金融, i.e. technology/medicine/finance).
+            n: Return the first n questions.
 
         Returns:
-            题目列表。
+            List of questions.
         """
         result = self.questions
         if domain:
@@ -458,21 +458,21 @@ class ResearchBench:
         metrics_weights: dict[str, float] | None = None,
     ) -> dict[str, Any]:
         """
-        对单篇研究报告进行评测。
+        Evaluate a single research report.
 
         Args:
-            report: 生成的研究报告文本。
-            question_id: 对应题目的 ID。
-            metrics_weights: 自定义指标权重。
+            report: Generated research report text.
+            question_id: ID of the corresponding question.
+            metrics_weights: Custom metric weights.
 
         Returns:
-            包含各维度得分和综合得分的字典。
+            Dict containing per-dimension scores and the composite score.
         """
         from evaluation.metrics.rule_based import RuleBasedMetrics
 
         q = next((x for x in self.questions if x["id"] == question_id), None)
         if q is None:
-            raise ValueError(f"未找到题目 ID: {question_id}")
+            raise ValueError(f"Question ID not found: {question_id}")
 
         expected_topics = q.get("expected_topics", [])
         ground_truth = q.get("ground_truth", {})
@@ -484,7 +484,7 @@ class ResearchBench:
         logic = RuleBasedMetrics.logical_consistency(report)
         comprehensive = RuleBasedMetrics.comprehensiveness(report, expected_topics)
 
-        # bias 维度用 (1 - hallucination_rate) 作为代理
+        # The bias dimension uses (1 - hallucination_rate) as a proxy
         bias_score = max(0.0, 1.0 - hallucination)
 
         metrics = {
@@ -511,13 +511,13 @@ class ResearchBench:
         results: list[dict[str, Any]],
     ) -> dict[str, Any]:
         """
-        批量评估多篇报告。
+        Batch-evaluate multiple reports.
 
         Args:
-            results: 每条包含 {"question_id": ..., "report": ...} 的列表。
+            results: List of items each containing {"question_id": ..., "report": ...}.
 
         Returns:
-            聚合评测结果，含平均分、按领域统计。
+            Aggregated evaluation results, including the average score and per-domain statistics.
         """
         all_scores = []
         by_domain: dict[str, list[float]] = {}
@@ -547,11 +547,11 @@ class ResearchBench:
 
 
 # =============================================================================
-# 简单自测
+# Simple self-test
 # =============================================================================
 if __name__ == "__main__":
     bench = ResearchBench()
-    print(f"内置题目数: {len(bench.questions)}")
+    print(f"Built-in question count: {len(bench.questions)}")
 
     sample_report = """
     GPT-4o 是 OpenAI 于 2024 年 5 月发布的原生多模态大模型[1]。
@@ -562,4 +562,4 @@ if __name__ == "__main__":
     """
 
     result = bench.evaluate_report(sample_report, "tech_001")
-    print("评测结果:", json.dumps(result, ensure_ascii=False, indent=2))
+    print("Evaluation results:", json.dumps(result, ensure_ascii=False, indent=2))

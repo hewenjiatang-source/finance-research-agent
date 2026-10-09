@@ -1,13 +1,13 @@
 """
-研究员 Agent (ResearcherAgent)
+Researcher agent (ResearcherAgent)
 
-执行搜索和分析类 SubTask，实现多轮 tool-calling 循环。
-设计为项目一 ToolAgentLoop 的简化版：
-  - 单 trajectory，无批处理
-  - 支持 7 种工具：web_search, arxiv_reader, code_sandbox, browser,
+Executes search and analysis SubTasks with a multi-turn tool-calling loop.
+A simplified version of project one's ToolAgentLoop:
+  - single trajectory, no batching
+  - supports 7 tools: web_search, arxiv_reader, code_sandbox, browser,
     file_reader, calculator, notepad
-  - 通过 VLLMPolicy 进行 LLM 调用
-  - 工具结果回写后自动继续，直到模型不再调用工具或达到 max_turns
+  - LLM calls go through the VLLMPolicy
+  - after tool results are written back, it continues automatically until the model stops calling tools or max_turns is reached
 """
 from __future__ import annotations
 
@@ -24,20 +24,20 @@ __all__ = ["ResearcherAgent"]
 
 
 class ResearcherAgent(BaseAgent):
-    """研究员 Agent：负责搜索、分析、验证类任务。
+    """Researcher agent: handles search, analysis and verification tasks.
 
-    可用工具（7 个）：
-      - web_search:   网页搜索，返回标题/链接/摘要
-      - browser:      网页阅读器，打开 URL 提取正文
-      - arxiv_reader: ArXiv 论文元数据检索
-      - file_reader:  本地文件阅读（.txt/.md/.pdf/.csv/.json/.docx）
-      - code_sandbox: Python 代码沙箱执行
-      - calculator:   轻量数学计算（比沙箱更快更安全）
-      - notepad:      草稿笔记（记录中间结论/待办/搜索策略）
+    Available tools (7):
+      - web_search:   web search, returns title / link / snippet
+      - browser:      web page reader, opens a URL and extracts the body text
+      - arxiv_reader: ArXiv paper metadata retrieval
+      - file_reader:  local file reading (.txt/.md/.pdf/.csv/.json/.docx)
+      - code_sandbox: Python code sandbox execution
+      - calculator:   lightweight math (faster and safer than the sandbox)
+      - notepad:      scratch notes (record intermediate conclusions / todos / search strategy)
 
     Attributes:
-        max_turns: 最大交互轮数，防止无限循环。
-        tool_map: 工具名称到工具实例的映射。
+        max_turns: maximum number of interaction turns, to prevent infinite loops.
+        tool_map: mapping from tool name to tool instance.
     """
 
     def __init__(
@@ -53,21 +53,21 @@ class ResearcherAgent(BaseAgent):
 
     @trace_agent(name="researcher.run", tags=["agent", "researcher"])
     async def run(self, task: SubTask, context: dict) -> AgentResult:
-        """执行 Researcher 任务。
+        """Run a Researcher task.
 
-        流程:
-          1. 构建初始 system + user messages
-          2. 循环调用 policy，解析 tool_calls
-          3. 执行工具，将结果追加为 tool message
-          4. 直到无 tool_calls 或达到 max_turns
+        Flow:
+          1. build the initial system + user messages
+          2. loop calling the policy and parsing tool_calls
+          3. execute the tools and append the results as tool messages
+          4. until there are no tool_calls or max_turns is reached
         """
         trajectory: list[dict] = []
         total_tokens: int = 0
 
-        # 构建任务描述
+        # build the task description
         task_desc = self._build_task_prompt(task, context)
 
-        # 查询可行性判断：如果任务明显无法通过网络搜索获得答案，直接基于已知信息分析
+        # feasibility check: if the task obviously cannot be answered by web search, analyze directly from known information
         if self._is_non_searchable(task, context):
             messages = [
                 {"role": "system", "content": self._system_prompt_direct_analysis()},
@@ -99,12 +99,12 @@ class ResearcherAgent(BaseAgent):
             {"role": "user", "content": task_desc},
         ]
 
-        # 若 policy 支持 tool 设置，则注册可用工具
+        # if the policy supports setting tools, register the available tools
         if hasattr(self.policy, "set_tools") and self.tools:
             schemas = [t.get_openai_tool_schema() for t in self.tools]
             self.policy.set_tools(schemas)
 
-        # 根据任务类型确定 fallback 工具（子类可覆盖 _fallback_tool）
+        # decide the fallback tool by task type (subclasses may override _fallback_tool)
         fallback_tool = self._fallback_tool(task)
 
         for turn in range(self.max_turns):
@@ -122,10 +122,10 @@ class ResearcherAgent(BaseAgent):
                     })
 
             try:
-                # 使用线程池执行同步 policy，避免阻塞 asyncio 事件循环
+                # run the synchronous policy in a thread pool, so it does not block the asyncio event loop
                 response = await asyncio.to_thread(self.policy, messages)
             except RuntimeError as e:
-                # 上下文长度超限等致命错误
+                # fatal errors such as context length exceeded
                 trajectory.append({"turn": turn, "error": str(e)})
                 return AgentResult(
                     task_id=task.task_id,
@@ -146,12 +146,12 @@ class ResearcherAgent(BaseAgent):
                 "tool_calls": [dict(tc) for tc in tool_calls],
             })
 
-            # 估算 token（简化：字符数 / 3）
+            # estimate tokens (simplified: characters / 3)
             total_tokens += len(json.dumps(messages, ensure_ascii=False)) // 3
 
-            # 无工具调用 → 任务完成
+            # no tool calls -> task finished
             if not tool_calls:
-                # B方案：检测 LLM 回复是否包含明显的工具失败说明
+                # plan B: detect whether the LLM reply is an obvious explanation of a tool failure
                 if self._is_tool_failure_explanation(content):
                     return AgentResult(
                         task_id=task.task_id,
@@ -171,7 +171,7 @@ class ResearcherAgent(BaseAgent):
                     confidence=confidence,
                 )
 
-            # 执行工具调用
+            # execute the tool calls
             tool_results = []
             for tc in tool_calls:
                 func = tc.get("function", {})
@@ -183,7 +183,7 @@ class ResearcherAgent(BaseAgent):
 
                 result = await self._execute_tool(tool_name, args)
 
-                # B方案：检测工具返回结果是否包含 error 字段
+                # plan B: detect whether the tool result contains an error field
                 if isinstance(result, dict) and result.get("error"):
                     error_msg = result["error"]
                     trajectory.append({
@@ -215,7 +215,7 @@ class ResearcherAgent(BaseAgent):
                     "result": result,
                 })
 
-            # 检测搜索结果是否全为空（工具返回了但无有效内容）
+            # detect whether the search results are all empty (the tool returned but with no useful content)
             all_empty = True
             for tr in tool_results:
                 if tr["name"] == "web_search":
@@ -226,7 +226,7 @@ class ResearcherAgent(BaseAgent):
                                 all_empty = False
                                 break
             
-            # 如果已搜索 2+ 轮或搜索结果全空，强制要求总结
+            # if searched 2+ rounds or the results are all empty, force a summary
             search_count = sum(1 for t in trajectory if t.get("role") == "tool" and t.get("name") == "web_search")
             force_summary = False
             if search_count >= 2:
@@ -234,21 +234,21 @@ class ResearcherAgent(BaseAgent):
             if all_empty and tool_results:
                 force_summary = True
 
-            # 将 assistant message 和 tool results 追加到 messages
+            # append the assistant message and tool results to messages
             assistant_msg = {
                 "role": "assistant",
                 "content": content,
             }
             if tool_calls:
                 assistant_msg["tool_calls"] = [dict(tc) for tc in tool_calls]
-            # 保留 reasoning_content（DeepSeek 推理模型需要传回）
+            # keep reasoning_content (DeepSeek reasoning models need it passed back)
             if response.get("reasoning_content"):
                 assistant_msg["reasoning_content"] = response["reasoning_content"]
             messages.append(assistant_msg)
 
             for tr in tool_results:
                 msg_content = json.dumps(tr["result"], ensure_ascii=False, default=str)
-                # 如果强制总结，给工具结果附加提示
+                # if a summary is forced, append a notice to the tool result
                 if force_summary:
                     msg_content += "\n\n[SYSTEM NOTICE] You have already searched enough. Write your final summary NOW. Do NOT call any more tools."
                 messages.append({
@@ -257,7 +257,7 @@ class ResearcherAgent(BaseAgent):
                     "content": msg_content,
                 })
 
-        # 达到 max_turns
+        # reached max_turns
         return AgentResult(
             task_id=task.task_id,
             status=AgentStatus.TIMEOUT,
@@ -268,9 +268,9 @@ class ResearcherAgent(BaseAgent):
         )
 
     def _fallback_tool(self, task: SubTask) -> str:
-        """模型一轮没调用工具时，强制要求它使用的工具名。"""
+        """Name of the tool the model is forced to use when it called none in a turn."""
         desc_lower = (task.description or "").lower()
-        academic_keywords = ["论文", "paper", "publication", "学术", "arxiv", "neurips", "icml", "iclr", "scholar", "citation", "文献"]
+        academic_keywords = ["论文", "paper", "publication", "学术", "arxiv", "neurips", "icml", "iclr", "scholar", "citation", "文献"]  # Chinese keywords are intentional: they match Chinese-language tasks
         return "arxiv_reader" if any(kw in desc_lower for kw in academic_keywords) else "web_search"
 
     def _system_prompt(self) -> str:
@@ -315,59 +315,59 @@ class ResearcherAgent(BaseAgent):
         )
 
     def _is_non_searchable(self, task: SubTask, context: dict) -> bool:
-        """启发式判断任务是否无法通过网络搜索获取答案。"""
+        """Heuristically decide whether a task cannot be answered by web search."""
         desc = (task.description or "").lower()
         query = context.get("query", "").lower()
         combined = desc + " " + query
 
-        # 模式 1：分析/评价特定私人个体（姓名 + 描述性分析）
-        if "朋友" in combined or "同学" in combined or "同事" in combined:
+        # Pattern 1: analyzing / judging a specific private individual (name + descriptive analysis)
+        if "朋友" in combined or "同学" in combined or "同事" in combined:  # Chinese keywords intentional (friend / classmate / colleague)
             if any(w in combined for w in ["分析", "评价", "是什么样", "性格", "人品"]):
                 return True
 
-        # 模式 2：主观建议类（基于个人情况）
-        if any(w in combined for w in ["建议我", "我该怎么", "适合我吗", "要不要"]):
+        # Pattern 2: subjective advice (based on personal circumstances)
+        if any(w in combined for w in ["建议我", "我该怎么", "适合我吗", "要不要"]):  # Chinese phrases intentional ("advise me", "what should I do", ...)
             if "朋友" in combined or "我" in query:
                 return True
 
-        # 模式 3：明显的个人隐私分析
+        # Pattern 3: clearly personal-privacy analysis
         if "叫" in combined and any(w in combined for w in ["分析", "评价", "是什么样"]):
             return True
 
         return False
 
     def _build_task_prompt(self, task: SubTask, context: dict) -> str:
-        """根据 SubTask 和全局上下文构建 user prompt。"""
+        """Build the user prompt from the SubTask and the global context."""
         desc_lower = (task.description or "").lower()
         
-        # 智能工具推荐：根据任务描述关键词匹配
+        # smart tool recommendation: match keywords in the task description
         tool_recommendations = []
         
-        # 学术论文类
+        # academic papers
         academic_keywords = ["论文", "paper", "publication", "学术", "arxiv", "neurips", "icml", "iclr", "scholar", "citation", "文献"]
         if any(kw in desc_lower for kw in academic_keywords):
             tool_recommendations.append("arxiv_reader")
         
-        # 计算/数学类
+        # calculation / math
         calc_keywords = ["计算", "flops", "显存", "内存", "参数量", "延迟", "成本", "公式", "数值", "统计", "数学", "公式", "推导"]
         if any(kw in desc_lower for kw in calc_keywords):
             tool_recommendations.append("calculator")
             tool_recommendations.append("code_sandbox")
         
-        # 深度阅读类（需要读原文）
+        # deep reading (needs the original text)
         browser_keywords = ["详细", "原文", "全文", "深度", "详细内容", "网页内容", "文章正文"]
         if any(kw in desc_lower for kw in browser_keywords):
             tool_recommendations.append("browser")
         
-        # 文件类
+        # files
         file_keywords = ["文件", "文档", "dataset", "数据集", "pdf", "csv", "json"]
         if any(kw in desc_lower for kw in file_keywords):
             tool_recommendations.append("file_reader")
         
-        # 确定首选工具：学术论文类优先用 arxiv_reader，其他先用 web_search
+        # decide the primary tool: academic papers prefer arxiv_reader, everything else starts with web_search
         is_academic = "arxiv_reader" in tool_recommendations
         if is_academic:
-            # 学术论文任务：arxiv_reader 优先，web_search 备选
+            # academic paper task: arxiv_reader first, web_search as a backup
             tool_recommendations = ["arxiv_reader"] + [t for t in tool_recommendations if t != "arxiv_reader"]
         elif not tool_recommendations:
             tool_recommendations.insert(0, "web_search")
@@ -397,7 +397,7 @@ class ResearcherAgent(BaseAgent):
             "   You may call tools AT MOST 2 times total. After the 2nd call, you MUST write the final summary.",
             "4. If search results are too short, you may use 'browser' to read the full article (counts as 1 tool call).",
             "5. If calculations are needed, use 'calculator' or 'code_sandbox' (counts as 1 tool call).",
-            "6. Finally, summarize your findings in Chinese with a confidence score (0-1).",
+            "6. Finally, summarize your findings in English with a confidence score (0-1).",
             "7. DO NOT greet the user or ask clarifying questions — just execute immediately.",
             "8. IMPORTANT: Your query MUST directly address the task description.",
         ])
@@ -414,7 +414,7 @@ class ResearcherAgent(BaseAgent):
         return "\n".join(lines)
 
     async def _execute_tool(self, tool_name: str, args: dict) -> dict:
-        """调用具体工具实例。"""
+        """Call the concrete tool instance."""
         tool = self.tool_map.get(tool_name)
         if tool is None:
             return {"error": f"Tool '{tool_name}' not found"}
@@ -424,9 +424,9 @@ class ResearcherAgent(BaseAgent):
             return {"error": f"{type(e).__name__}: {e}"}
 
     def _is_tool_failure_explanation(self, content: str) -> bool:
-        """检测 LLM 回复是否是工具失败的解释说明而非真实研究结果。
+        """Detect whether an LLM reply is an explanation of a tool failure rather than a real research result.
 
-        常见模式：额度用完、无法连接、无法搜索等。
+        Common patterns: quota exhausted, cannot connect, cannot search, etc.
         """
         if not content:
             return False
@@ -441,9 +441,9 @@ class ResearcherAgent(BaseAgent):
         return any(kw in c for kw in failure_keywords)
 
     def _extract_confidence(self, content: str) -> float:
-        """从输出文本中尝试提取置信度分数。"""
+        """Try to extract a confidence score from the output text."""
         import re
-        # 匹配 "Confidence: 0.85" 或 "置信度: 0.85"
+        # match "Confidence: 0.85" or "置信度: 0.85"
         patterns = [
             r"[Cc]onfidence[:\s]+(0\.\d+|1\.0|1)",
             r"置信度[:\s]+(0\.\d+|1\.0|1)",
@@ -455,5 +455,5 @@ class ResearcherAgent(BaseAgent):
                     return float(m.group(1))
                 except ValueError:
                     continue
-        # 默认中等置信度
+        # default to medium confidence
         return 0.6

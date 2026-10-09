@@ -1,11 +1,11 @@
-"""元评测（meta-evaluation）：评测器自己靠谱吗？
+"""Meta-evaluation: is the evaluator itself reliable?
 
-做法：用金标准生成"干净"的合成报告 + 证据（与被测 LLM 完全无关），再往里**注入已知类型的错误**，
-统计评测器的 ① 检出率（detection rate）② 错误类型归类正确率 ③ 对干净报告的误报率。
-没有这一步，"准确率 93%" 这类数字无法解释：不知道是模型好，还是评测器漏检。
+Method: build "clean" synthetic reports + evidence from the gold (fully independent of the LLM under test), then **inject errors of known types**
+and measure the evaluator's (1) detection rate, (2) error-type classification accuracy, (3) false-positive rate on clean reports.
+Without this step a number like "93% accuracy" cannot be interpreted: you cannot tell whether the model is good or the evaluator misses errors.
 
-局限（见 README）：注入的是人造错误，真实模型的错误分布更杂；合成报告句式规整，
-会高估"映射率"。所以这里的检出率应被理解为评测器的上界，而非真实世界的召回率。
+Limitations (see README): the injected errors are synthetic and real model errors are messier; the synthetic reports are phrased regularly,
+which overstates the "mapping rate". So the detection rate here should be read as an upper bound on the evaluator, not real-world recall.
 """
 from __future__ import annotations
 
@@ -81,8 +81,8 @@ def synth_case(cf: dict, fy: int, ticker: str, lang: str = "en") -> SynthCase:
     return SynthCase("\n".join(lines) + "\n", ev, gold, f"{ticker}-{cur}-{lang}")
 
 
-# --- 注入器：返回 (新报告, 新证据, 期望信号)；不适用返回 None ------------------------------------
-# 期望信号: (模块, 类别)；模块 accuracy 看 error_type，citation 看 status
+# --- Injectors: return (new report, new evidence, expected signal), or None if not applicable ------------------------------------
+# expected signal: (module, category); for accuracy the error_type is checked, for citation the status
 
 def _sub(report: str, pattern: str, repl: str, count: int = 1) -> str | None:
     new, n = re.subn(pattern, repl, report, count=count)

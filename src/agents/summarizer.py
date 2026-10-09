@@ -1,11 +1,11 @@
 """
-合成 Agent (SummarizerAgent)
+Synthesis agent (SummarizerAgent)
 
-将多个 SubTask 的执行结果合成为结构化的研究报告。
-区别于 ResearcherAgent 的多轮 tool-calling，Summarizer 是单轮长上下文生成任务：
-  - 把所有子结果按置信度排序后拼接为上下文
-  - 调用 LLM 一次性生成 Markdown 格式报告
-  - 提取引用来源，计算整体置信度
+Synthesizes the results of several SubTasks into a structured research report.
+Unlike ResearcherAgent's multi-turn tool calling, the Summarizer is a single-turn long-context generation task:
+  - sort all sub-results by confidence and concatenate them into the context
+  - call the LLM once to generate a Markdown report
+  - extract the cited sources and compute the overall confidence
 """
 from __future__ import annotations
 
@@ -22,10 +22,10 @@ __all__ = ["SummarizerAgent"]
 
 
 class SummarizerAgent(BaseAgent):
-    """合成 Agent：将子任务结果合成为最终研究报告。
+    """Synthesis agent: synthesizes sub-task results into the final research report.
 
     Attributes:
-        max_output_tokens: 报告生成的最大 token 数（通过 policy.max_tokens 控制）。
+        max_output_tokens: maximum tokens for report generation (controlled via policy.max_tokens).
     """
 
     def __init__(self, name: str, policy, tools: list | None = None) -> None:
@@ -33,16 +33,16 @@ class SummarizerAgent(BaseAgent):
 
     @trace_agent(name="summarizer.run", tags=["agent", "summarizer"])
     async def run(self, task: SubTask, context: dict) -> AgentResult:
-        """执行合成任务。
+        """Run the synthesis task.
 
         Args:
-            task: 通常是一个特殊的 "synthesize" 类型任务。
-            context: 全局上下文，必须包含 "results" 和 "query" 键。
+            task: usually a special "synthesize" task.
+            context: global context, must contain the "results" and "query" keys.
                 results: list[AgentResult]
-                query: str 原始研究问题
+                query: str, the original research question
 
         Returns:
-            AgentResult，output 字段为 ResearchReport 实例。
+            AgentResult whose output field is a ResearchReport instance.
         """
         query = context.get("query", "")
         results: list[AgentResult] = context.get("results", [])
@@ -62,7 +62,7 @@ class SummarizerAgent(BaseAgent):
                 confidence=0.0,
             )
 
-        # 构建 synthesis prompt
+        # build the synthesis prompt
         prompt = self._build_synthesis_prompt(query, results)
         messages = [
             {"role": "system", "content": self._system_prompt()},
@@ -70,7 +70,7 @@ class SummarizerAgent(BaseAgent):
         ]
 
         try:
-            # 合成任务不需要工具调用，临时禁用 tools 避免模型进入 tool-calling 模式
+            # synthesis needs no tool calls; temporarily disable tools so the model does not enter tool-calling mode
             old_tools = getattr(self.policy, "tools", None)
             self.policy.tools = None
             response = self.policy(messages)
@@ -86,9 +86,9 @@ class SummarizerAgent(BaseAgent):
             )
 
         content = response.get("content", "") or ""
-        token_usage = len(content) // 3  # 简化估算
+        token_usage = len(content) // 3  # rough estimate
 
-        # 解析报告内容，提取来源和置信度
+        # parse the report content, extract sources and confidence
         report = self._parse_report(query, content, results)
 
         return AgentResult(
@@ -112,7 +112,7 @@ class SummarizerAgent(BaseAgent):
         )
 
     def _build_synthesis_prompt(self, query: str, results: list[AgentResult]) -> str:
-        """构建合成 prompt，按置信度降序排列结果。"""
+        """Build the synthesis prompt, sorting results by descending confidence."""
         sorted_results = sorted(results, key=lambda r: r.confidence, reverse=True)
 
         parts = [
@@ -139,8 +139,8 @@ class SummarizerAgent(BaseAgent):
         return "\n".join(parts)
 
     def _parse_report(self, query: str, content: str, results: list[AgentResult]) -> ResearchReport:
-        """从 LLM 输出中解析 ResearchReport，并基于子任务成功率校准置信度。"""
-        # 1. 从文本中提取 LLM 自评置信度
+        """Parse a ResearchReport from the LLM output and calibrate confidence by the sub-task success rate."""
+        # 1. extract the LLM's self-rated confidence from the text
         llm_confidence = 0.5
         m = re.search(r"[Oo]verall\s+[Cc]onfidence[:\s]+(0\.\d+|1\.0|1)", content)
         if m:
@@ -149,21 +149,21 @@ class SummarizerAgent(BaseAgent):
             except ValueError:
                 pass
 
-        # 2. 基于子任务成功率计算客观置信度
+        # 2. compute an objective confidence from the sub-task success rate
         total = len(results)
         success = sum(1 for r in results if r.status == AgentStatus.SUCCESS)
         success_rate = success / max(total, 1)
 
-        # 3. 综合置信度 = LLM 自评 × 成功率开根（降低成功率的影响权重）
+        # 3. combined confidence = LLM self-rating x sqrt(success rate) (lowers the weight of the success rate)
         confidence = llm_confidence * (success_rate ** 0.5)
         confidence = round(max(0.0, min(1.0, confidence)), 2)
 
-        # 收集来源（从各个子结果的轨迹中提取）
+        # collect sources (extracted from the trajectories of the sub-results)
         sources: list[dict] = []
         for r in results:
             if r.status != AgentStatus.SUCCESS:
                 continue
-            # 简单启发式：从 trajectory 的 tool 结果中提取 url
+        # simple heuristic: extract urls from the tool results in the trajectory
             for step in r.trajectory:
                 if step.get("role") == "tool" and isinstance(step.get("result"), dict):
                     res = step["result"]
@@ -186,7 +186,7 @@ class SummarizerAgent(BaseAgent):
                                     "task_id": r.task_id,
                                 })
 
-        # 去重
+        # deduplicate
         seen = set()
         unique_sources = []
         for s in sources:
@@ -195,7 +195,7 @@ class SummarizerAgent(BaseAgent):
                 seen.add(key)
                 unique_sources.append(s)
 
-        # 统计实际工具调用次数（遍历所有子任务的 trajectory）
+        # count the actual tool calls (across the trajectories of all sub-tasks)
         num_searches = sum(
             len([t for t in r.trajectory if t.get("role") == "tool"])
             for r in results

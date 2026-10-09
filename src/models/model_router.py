@@ -1,25 +1,25 @@
 """
-多后端 LLM 路由器 (Model Router)
+Multi-backend LLM router (Model Router)
 
-支持通过环境变量 (.env) 配置多个 LLM 后端，运行时动态切换：
-  - Claude（Anthropic Messages API，默认后端；name = "claude" 或 "anthropic"）
-  - DeepSeek API / 本地 vLLM / OpenAI 及任何 OpenAI 兼容 API（保留，便于对照实验）
+Supports configuring several LLM backends via environment variables (.env) and switching at runtime:
+  - Claude (Anthropic Messages API, the default backend; name = "claude" or "anthropic")
+  - DeepSeek API / local vLLM / OpenAI and any OpenAI-compatible API (kept for comparison experiments)
 
-设计要点:
-  1. 零源码修改切换后端：所有敏感信息（API Key / URL）都放在 .env 文件中
-  2. 运行时热切换：不同模块可以用不同后端（如 Red Agent 用 cheap 模型，Solver 用 strong 模型）
-  3. 向后兼容：保留 VLLMPolicy 的所有接口和行为，只扩展初始化方式
+Key points:
+  1. Switch backends with zero source changes: all secrets (API keys / URLs) live in the .env file
+  2. Hot switching at runtime: different modules can use different backends (e.g. a cheap model for the Red Agent, a strong one for the Solver)
+  3. Backward compatible: keeps all VLLMPolicy interfaces and behavior, only extends initialization
 
-用法示例:
+Usage examples:
   >>> from src.models.model_router import ModelRouter
-  >>> # 使用默认后端（.env 中 DEFAULT_LLM_BACKEND 指定）
+  >>> # use the default backend (set by DEFAULT_LLM_BACKEND in .env)
   >>> policy = ModelRouter.create_backend()
-  >>> # 显式指定后端
+  >>> # specify a backend explicitly
   >>> policy = ModelRouter.create_backend("deepseek")
-  >>> # 获取所有可用后端，按场景分配
+  >>> # get all available backends and assign them by scenario
   >>> backends = ModelRouter.get_all_backends()
   >>> solver_policy = backends["deepseek"]
-  >>> red_policy = backends["vllm"]  # 本地模型，攻击成本低
+  >>> red_policy = backends["vllm"]  # local model, low attack cost
 """
 from __future__ import annotations
 
@@ -34,17 +34,17 @@ from .vllm_policy import VLLMPolicy
 
 __all__ = ["ModelRouter"]
 
-# Claude 后端的名字别名（均指向 Anthropic Messages API）
+# aliases of the Claude backend (all point to the Anthropic Messages API)
 _CLAUDE_NAMES = ("claude", "anthropic")
 
-# 全局缓存，避免重复读取 .env 和创建 client
+# global cache, to avoid re-reading .env and re-creating clients
 _BACKEND_CACHE: dict[str, Union[VLLMPolicy, ClaudePolicy]] = {}
 
 
 class ModelRouter:
-    """多后端 LLM 路由器。
+    """Multi-backend LLM router.
 
-    所有方法都是类方法 / 静态方法，无需实例化。
+    All methods are class / static methods; no instantiation needed.
     """
 
     @staticmethod
@@ -52,54 +52,54 @@ class ModelRouter:
         backend_name: str | None = None,
         **override_kwargs,
     ) -> Union[VLLMPolicy, ClaudePolicy]:
-        """创建指定名称的 LLM Backend（ClaudePolicy 或 VLLMPolicy，二者接口一致）。
+        """Create the named LLM backend (ClaudePolicy or VLLMPolicy, which share an interface).
 
         Args:
-            backend_name: 后端名称，对应 .env 中的前缀。
-                          为 None 时使用 DEFAULT_LLM_BACKEND。
-            **override_kwargs: 覆盖 .env 中任何参数（如 temperature, max_tokens）。
+            backend_name: backend name, matching the prefix in .env.
+                          When None, DEFAULT_LLM_BACKEND is used.
+            **override_kwargs: override any parameter from .env (e.g. temperature, max_tokens).
 
         Returns:
-            VLLMPolicy: 配置好的策略实例，接口与项目一完全一致。
+            VLLMPolicy: a configured policy instance with exactly the same interface as project one.
 
         Raises:
-            ValueError: 找不到对应后端配置时。
+            ValueError: when no configuration for the backend is found.
         """
         ensure_env_loaded()
 
         name = (backend_name or get_env("DEFAULT_LLM_BACKEND", "claude")).lower().strip()
 
-        # 检查缓存（kwargs 可能含 dict，不能直接 hash）
+        # check the cache (kwargs may contain dicts, which cannot be hashed directly)
         cache_key = f"{name}:{json.dumps(override_kwargs, sort_keys=True, default=str)}"
         if cache_key in _BACKEND_CACHE:
             return _BACKEND_CACHE[cache_key]
 
-        # 根据名称读取 .env 配置
+        # read the configuration from .env by name
         config = ModelRouter._load_backend_config(name)
         config.update(override_kwargs)
 
-        # 创建 Policy 实例：Claude 走 Anthropic SDK，其余走 OpenAI 兼容客户端
+        # create the Policy instance: Claude uses the Anthropic SDK, the others the OpenAI-compatible client
         policy = ClaudePolicy(**config) if name in _CLAUDE_NAMES else VLLMPolicy(**config)
         _BACKEND_CACHE[cache_key] = policy
         return policy
 
     @staticmethod
     def get_all_backends(backend_names: list[str] | None = None) -> dict[str, Union[VLLMPolicy, ClaudePolicy]]:
-        """预加载并返回所有已配置的后端。
+        """Preload and return all configured backends.
 
         Args:
-            backend_names: 指定要扫描的后端名称列表。为 None 时扫描全部已知后端
-                          （claude, deepseek, vllm, openai, mimo 及任何自定义前缀）。
+            backend_names: list of backend names to scan. When None, scan all known backends
+                          (claude, deepseek, vllm, openai, mimo and any custom prefix).
 
-        常用于"主模型用 DeepSeek，Red Agent 用 MiMo"的场景。
+        Typical for scenarios like "main model on DeepSeek, Red Agent on MiMo".
         """
         ensure_env_loaded()
         backends: dict[str, Union[VLLMPolicy, ClaudePolicy]] = {}
 
-        # 默认扫描所有已知内置后端 + 环境变量中发现的自定义后端
+        # by default scan all known built-in backends + custom backends discovered in the environment
         if backend_names is None:
             backend_names = ["claude", "deepseek", "vllm", "openai", "mimo"]
-            # 自动发现 .env 中其他以 _API_KEY 结尾的自定义后端（anthropic 是 claude 的别名，跳过）
+            # auto-discover other custom backends in .env ending in _API_KEY (anthropic is an alias of claude, skip it)
             for key in os.environ:
                 if key.endswith("_API_KEY"):
                     prefix = key[:-len("_API_KEY")].lower()
@@ -111,17 +111,17 @@ class ModelRouter:
                 try:
                     backends[name] = ModelRouter.create_backend(name)
                 except ValueError:
-                    pass  # 配置不完整，跳过
+                    pass  # incomplete configuration, skip
         return backends
 
     @staticmethod
     def clear_cache() -> None:
-        """清空后端缓存。用于配置热重载后重新初始化。"""
+        """Clear the backend cache. Use it to re-initialize after a configuration hot reload."""
         _BACKEND_CACHE.clear()
 
     @staticmethod
     def _is_backend_configured(name: str) -> bool:
-        """检查某个后端是否已在 .env 中配置。"""
+        """Check whether a backend is configured in .env."""
         if name in _CLAUDE_NAMES:
             return any(get_env(k) is not None for k in ("ANTHROPIC_API_KEY", "CLAUDE_API_KEY", "ANTHROPIC_BASE_URL"))
         prefix = name.upper()
@@ -129,10 +129,10 @@ class ModelRouter:
 
     @staticmethod
     def _load_backend_config(name: str) -> dict:
-        """从环境变量加载指定后端的配置字典。
+        """Load the configuration dict of the given backend from environment variables.
 
-        环境变量命名规范: {PREFIX}_{PARAM}
-          例如: DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, DEEPSEEK_MODEL
+        Environment variable naming: {PREFIX}_{PARAM}
+          e.g. DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, DEEPSEEK_MODEL
         """
         if name in _CLAUDE_NAMES:
             return ModelRouter._load_claude_config()
@@ -145,11 +145,11 @@ class ModelRouter:
 
         if api_key is None and base_url is None:
             raise ValueError(
-                f"后端 '{name}' 未配置。请在 .env 或 .env.local 中设置 "
-                f"{prefix}_API_KEY 和/或 {prefix}_BASE_URL。"
+                f"Backend '{name}' is not configured. Please set "
+                f"{prefix}_API_KEY and/or {prefix}_BASE_URL in .env or .env.local."
             )
 
-        # 构建 VLLMPolicy 接受的参数字典
+        # build the parameter dict VLLMPolicy accepts
         config: dict = {}
 
         if model is not None:
@@ -159,7 +159,7 @@ class ModelRouter:
         if api_key is not None:
             config["api_key"] = api_key
 
-        # 可选参数
+        # optional parameters
         temp = get_env(f"{prefix}_TEMPERATURE")
         if temp is not None:
             config["temperature"] = float(temp)
@@ -168,7 +168,7 @@ class ModelRouter:
         if max_tok is not None:
             config["max_tokens"] = int(max_tok)
 
-        # 为 vllm 提供默认值（如果用户没配 model）
+        # provide a default for vllm (if the user did not configure a model)
         if name == "vllm" and "model_name" not in config:
             config["model_name"] = "Qwen/Qwen2.5-7B-Instruct"
         if name == "vllm" and "base_url" not in config:
@@ -176,21 +176,21 @@ class ModelRouter:
         if name == "vllm" and "api_key" not in config:
             config["api_key"] = "EMPTY"
 
-        # 为 deepseek 提供默认值
+        # provide defaults for deepseek
         if name == "deepseek" and "model_name" not in config:
             config["model_name"] = "deepseek-chat"
         if name == "deepseek" and "base_url" not in config:
             config["base_url"] = "https://api.deepseek.com/v1"
 
-        # 为 openai 提供默认值
+        # provide defaults for openai
         if name == "openai" and "model_name" not in config:
             config["model_name"] = "gpt-4o"
         if name == "openai" and "base_url" not in config:
             config["base_url"] = "https://api.openai.com/v1"
 
-        # 为 xiaomi mimo 提供默认值（官方 API，国内直连）
-        # 官方平台: https://platform.xiaomimimo.com/
-        # 如需走 OpenRouter 备选渠道，在 .env 中手动覆盖：
+        # provide defaults for xiaomi mimo (official API, directly reachable in China)
+        # official platform: https://platform.xiaomimimo.com/
+        # to use the OpenRouter fallback channel, override manually in .env:
         #   MIMO_BASE_URL=https://openrouter.ai/api/v1
         #   MIMO_MODEL=xiaomi/mimo-v2.5-pro
         if name == "mimo" and "model_name" not in config:
@@ -202,19 +202,19 @@ class ModelRouter:
 
     @staticmethod
     def _load_claude_config() -> dict:
-        """Claude 后端配置。
+        """Claude backend configuration.
 
-        环境变量:
-          ANTHROPIC_API_KEY  (或 CLAUDE_API_KEY)  API Key
-          ANTHROPIC_BASE_URL (可选)                网关/代理地址
-          CLAUDE_MODEL       (可选)                默认 claude-sonnet-5-5
-          CLAUDE_MAX_RETRIES / CLAUDE_TIMEOUT / CLAUDE_MAX_INPUT_CHARS (可选)
+        Environment variables:
+          ANTHROPIC_API_KEY  (or CLAUDE_API_KEY)  API key
+          ANTHROPIC_BASE_URL (optional)            gateway / proxy address
+          CLAUDE_MODEL       (optional)            default claude-sonnet-5-5
+          CLAUDE_MAX_RETRIES / CLAUDE_TIMEOUT / CLAUDE_MAX_INPUT_CHARS (optional)
         """
         api_key = get_env("ANTHROPIC_API_KEY") or get_env("CLAUDE_API_KEY")
         base_url = get_env("ANTHROPIC_BASE_URL")
         if api_key is None and base_url is None:
             raise ValueError(
-                "后端 'claude' 未配置。请在 .env 或 .env.local 中设置 ANTHROPIC_API_KEY。"
+                "Backend 'claude' is not configured. Please set ANTHROPIC_API_KEY in .env or .env.local."
             )
 
         config: dict = {"model_name": get_env("CLAUDE_MODEL", DEFAULT_CLAUDE_MODEL)}

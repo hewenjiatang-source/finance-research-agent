@@ -3,13 +3,13 @@
 """
 scripts/run_repl.py
 ================================================================================
-DeepResearch Agent 交互式 REPL 单会话脚本。
+DeepResearch Agent interactive single-session REPL script.
 
-功能：
-  1. 启动时列出已有 sessions，支持新建或继承
-  2. 在单个进程内连续提问，共享同一个 Orchestrator + Memory Store
-  3. 所有数据按 session 隔离存储于 SQLite
-  4. 输入 q/quit/exit 退出，Ctrl+C 优雅中断
+Features:
+  1. List existing sessions on startup; supports creating a new one or resuming
+  2. Ask questions continuously within a single process, sharing one Orchestrator + Memory Store
+  3. All data is stored in SQLite, isolated per session
+  4. Type q/quit/exit to leave; Ctrl+C interrupts gracefully
 
 Usage:
     python scripts/run_repl.py [--config path/to/config.yaml]
@@ -36,7 +36,7 @@ from src.memory.memory_store import SharedMemoryStore
 
 
 def list_sessions(db_path: str) -> list[dict]:
-    """列出数据库中所有 session。"""
+    """List all sessions in the database."""
     if not os.path.exists(db_path):
         return []
     store = SharedMemoryStore(db_path=db_path, session_id="")
@@ -45,24 +45,24 @@ def list_sessions(db_path: str) -> list[dict]:
 
 def print_help() -> None:
     print("""
-可用命令:
-  <任意问题>   执行深度研究
-  ls          查看当前 session 已存储的记忆数
-  sessions    查看所有 session 列表
-  save        保存上一条报告到文件
-  help        显示此帮助
-  q / quit / exit  退出 REPL
+Available commands:
+  <any question>  run deep research
+  ls          show the number of memories stored in the current session
+  sessions    list all sessions
+  save        save the last report to a file
+  help        show this help
+  q / quit / exit  exit the REPL
 """)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="DeepResearch Agent 交互式 REPL",
+        description="DeepResearch Agent interactive REPL",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("--config", type=str, default=None, help="配置文件路径")
+    parser.add_argument("--config", type=str, default=None, help="Config file path")
     parser.add_argument("--log_level", type=str, default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"])
-    parser.add_argument("--session_id", type=str, default=None, help="直接指定 session_id，跳过交互选择")
+    parser.add_argument("--session_id", type=str, default=None, help="Specify session_id directly, skipping interactive selection")
     args = parser.parse_args()
 
     setup_logging(args.log_level)
@@ -72,25 +72,25 @@ def main() -> None:
     db_path = config.get("memory", {}).get("db_path", "data/memory.db")
 
     # ------------------------------------------------------------------
-    # Session 选择
+    # Session selection
     # ------------------------------------------------------------------
     if args.session_id:
         session_id = args.session_id
-        print(f"[REPL] 已指定 session: {session_id}")
+        print(f"[REPL] Session specified: {session_id}")
     else:
         sessions = list_sessions(db_path)
 
         print("=" * 50)
-        print("DeepResearch Agent 交互式 REPL")
+        print("DeepResearch Agent interactive REPL")
         print("=" * 50)
 
         if sessions:
-            print("\n已有 Sessions:")
+            print("\nExisting sessions:")
             for i, s in enumerate(sessions, 1):
                 ts = datetime.fromtimestamp(s["last_update"]).strftime("%Y-%m-%d %H:%M")
-                print(f"  [{i}] {s['session_id']:25s} ({s['count']:3d} 条记忆, 最后更新 {ts})")
-            print("  [N] 新建 session")
-            choice = input("\n选择 (编号或 N): ").strip()
+                print(f"  [{i}] {s['session_id']:25s} ({s['count']:3d} memories, last updated {ts})")
+            print("  [N] New session")
+            choice = input("\nChoose (number or N): ").strip()
             if choice.lower() == "n":
                 session_id = f"sess_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
             else:
@@ -98,31 +98,31 @@ def main() -> None:
                     idx = int(choice) - 1
                     session_id = sessions[idx]["session_id"]
                 except (ValueError, IndexError):
-                    print("无效选择，新建 session")
+                    print("Invalid choice, creating a new session")
                     session_id = f"sess_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         else:
-            print("\n暂无历史 session，新建一个...")
+            print("\nNo existing sessions, creating a new one...")
             session_id = f"sess_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
-        print(f"\n[REPL] 当前 session: {session_id}")
+        print(f"\n[REPL] Current session: {session_id}")
 
     # ------------------------------------------------------------------
-    # 初始化模块（只初始化一次，整个 REPL 生命周期复用）
+    # Initialize modules (once only, reused for the whole REPL lifetime)
     # ------------------------------------------------------------------
-    print("[REPL] 正在初始化模块...")
+    print("[REPL] Initializing modules...")
     modules = initialize_modules(config, session_id=session_id)
-    print(f"[REPL] 模块初始化完成，输入 'help' 查看命令，'q' 退出\n")
+    print(f"[REPL] Modules initialized; type 'help' for commands, 'q' to quit\n")
 
     last_report: str | None = None
 
     # ------------------------------------------------------------------
-    # REPL 循环
+    # REPL loop
     # ------------------------------------------------------------------
     while True:
         try:
             query = input(f"[{session_id}] > ").strip()
         except (EOFError, KeyboardInterrupt):
-            print("\n[REPL] 收到中断信号，退出...")
+            print("\n[REPL] Interrupt received, exiting...")
             break
 
         if not query:
@@ -137,37 +137,37 @@ def main() -> None:
             continue
         elif cmd == "ls":
             count = len(modules["memory_store"])
-            print(f"  当前 session '{session_id}' 共有 {count} 条记忆")
+            print(f"  Current session '{session_id}' has {count} memories")
             continue
         elif cmd == "sessions":
             all_sessions = list_sessions(db_path)
             if not all_sessions:
-                print("  暂无 session")
+                print("  No sessions")
             else:
                 for s in all_sessions:
                     ts = datetime.fromtimestamp(s["last_update"]).strftime("%Y-%m-%d %H:%M")
-                    marker = " <- 当前" if s["session_id"] == session_id else ""
-                    print(f"  {s['session_id']:25s} ({s['count']:3d} 条) {ts}{marker}")
+                    marker = " <- current" if s["session_id"] == session_id else ""
+                    print(f"  {s['session_id']:25s} ({s['count']:3d} memories) {ts}{marker}")
             continue
         elif cmd == "save":
             if last_report:
                 filepath = save_report(last_report, "repl_report", "outputs/reports")
-                print(f"  报告已保存: {filepath}")
+                print(f"  Report saved: {filepath}")
             else:
-                print("  暂无报告可保存")
+                print("  No report to save")
             continue
 
         # ------------------------------------------------------------------
-        # 执行深度研究
+        # Run deep research
         # ------------------------------------------------------------------
-        print(f"[REPL] 正在研究: {query[:60]}...")
+        print(f"[REPL] Researching: {query[:60]}...")
         start = time.time()
         try:
             report = asyncio.run(run_research(query, config, modules))
             elapsed = time.time() - start
             last_report = report
 
-            # 解析元信息（从报告尾部提取）
+            # Parse metadata (extracted from the end of the report)
             confidence = 0.0
             num_searches = 0
             for line in report.splitlines():
@@ -182,20 +182,20 @@ def main() -> None:
                     except ValueError:
                         pass
 
-            print(f"\n  ✓ 报告完成 | {len(report)} 字 | 置信度 {confidence:.2f} | "
-                  f"搜索 {num_searches} 轮 | 耗时 {elapsed:.1f}s")
-            print(f"  输入 'save' 保存报告，'ls' 查看当前 session 记忆数\n")
+            print(f"\n  ✓ Report complete | {len(report)} chars | confidence {confidence:.2f} | "
+                  f"searches {num_searches} rounds | elapsed {elapsed:.1f}s")
+            print(f"  Type 'save' to save the report, 'ls' to show the current session's memory count\n")
 
         except Exception as e:
-            logger.exception("研究执行失败")
-            print(f"\n  ✗ 执行失败: {e}\n")
+            logger.exception("Research execution failed")
+            print(f"\n  ✗ Execution failed: {e}\n")
 
     # ------------------------------------------------------------------
-    # 退出清理
+    # Exit cleanup
     # ------------------------------------------------------------------
-    print(f"\n[REPL] Session '{session_id}' 的数据已持久化到 {db_path}")
-    print("[REPL] 下次运行可用 --session_id 参数直接继承，或在交互菜单中选择。")
-    print("[REPL] 再见！")
+    print(f"\n[REPL] Data for session '{session_id}' persisted to {db_path}")
+    print("[REPL] Next time, resume it with the --session_id argument or pick it from the interactive menu.")
+    print("[REPL] Goodbye!")
 
 
 if __name__ == "__main__":

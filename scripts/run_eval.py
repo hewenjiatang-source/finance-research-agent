@@ -3,11 +3,11 @@
 """
 scripts/run_eval.py
 ================================================================================
-标准评测集入口脚本（合并了原 run_evaluation.py）。
+Standard evaluation set entry script (merges the former run_evaluation.py).
 
-支持:
-  --benchmark research_bench : 自建深度研究评测集（规则指标）
-  --benchmark hotpotqa      : 公共多跳 QA 评测集（EM/F1）
+Supports:
+  --benchmark research_bench : self-built deep research evaluation set (rule-based metrics)
+  --benchmark hotpotqa      : public multi-hop QA evaluation set (EM/F1)
 
 Usage:
     python scripts/run_eval.py --benchmark research_bench --num_questions 20
@@ -43,11 +43,11 @@ def evaluate_research_bench(
     domain: str | None,
     config: dict,
 ) -> EvaluationReport:
-    """在 ResearchBench 上运行评测。"""
+    """Run the evaluation on ResearchBench."""
     logger = logging.getLogger("run_eval")
     bench = ResearchBench()
     questions = bench.get_questions(domain=domain, n=num_questions)
-    logger.info(f"ResearchBench 加载 {len(questions)} 道题目")
+    logger.info(f"ResearchBench loaded {len(questions)} questions")
 
     modules = initialize_modules(config)
     report = EvaluationReport(name="ResearchBench_Evaluation", num_questions=len(questions))
@@ -55,7 +55,7 @@ def evaluate_research_bench(
     for idx, q in enumerate(questions, 1):
         qid = q["id"]
         query = q["query"]
-        logger.info(f"[{idx}/{len(questions)}] 评测题目: {qid}")
+        logger.info(f"[{idx}/{len(questions)}] Evaluating question: {qid}")
 
         start = time.time()
         try:
@@ -74,7 +74,7 @@ def evaluate_research_bench(
                 "composite_score": 0.0,
             })
 
-    # 汇总
+    # Summary
     valid_scores = [d["composite_score"] for d in report.details if "composite_score" in d]
     report.set_summary({
         "average_composite": sum(valid_scores) / len(valid_scores) if valid_scores else 0.0,
@@ -90,11 +90,11 @@ def evaluate_hotpotqa(
     config: dict,
     use_mock: bool = False,
 ) -> EvaluationReport:
-    """在 HotpotQA 上运行评测（深度研究变体：评估完整报告质量）。"""
+    """Run the evaluation on HotpotQA (deep research variant: assesses full report quality)."""
     logger = logging.getLogger("run_eval")
     bench = HotpotQABenchmark(use_mock=use_mock)
     questions = bench.get_samples(n=num_questions, shuffle=True)
-    logger.info(f"HotpotQA 加载 {len(questions)} 道题目")
+    logger.info(f"HotpotQA loaded {len(questions)} questions")
 
     modules = initialize_modules(config)
     report = EvaluationReport(name="HotpotQA_DeepResearch_Evaluation", num_questions=len(questions))
@@ -103,7 +103,7 @@ def evaluate_hotpotqa(
     for idx, q in enumerate(questions, 1):
         query = q["query"]
         gold = q["expected_answer"]
-        logger.info(f"[{idx}/{len(questions)}] 评测: {query[:60]}...")
+        logger.info(f"[{idx}/{len(questions)}] Evaluating: {query[:60]}...")
 
         try:
             report_text = asyncio.run(run_research(query, config, modules))
@@ -136,14 +136,14 @@ def evaluate_hotpotqa(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="DeepResearch Agent 标准评测脚本")
+    parser = argparse.ArgumentParser(description="DeepResearch Agent standard evaluation script")
     parser.add_argument("--benchmark", type=str, choices=["research_bench", "hotpotqa"],
-                        required=True, help="评测基准")
-    parser.add_argument("--num_questions", type=int, default=20, help="评测题目数量")
-    parser.add_argument("--domain", type=str, default=None, help="领域过滤（仅 ResearchBench）")
-    parser.add_argument("--use_mock", action="store_true", help="使用内置 mock 数据（仅 HotpotQA，用于流程验证）")
-    parser.add_argument("--config", type=str, default=None, help="配置文件路径")
-    parser.add_argument("--output_dir", type=str, default="outputs/evaluation", help="输出目录")
+                        required=True, help="Evaluation benchmark")
+    parser.add_argument("--num_questions", type=int, default=20, help="Number of evaluation questions")
+    parser.add_argument("--domain", type=str, default=None, help="Domain filter (ResearchBench only)")
+    parser.add_argument("--use_mock", action="store_true", help="Use built-in mock data (HotpotQA only, for pipeline verification)")
+    parser.add_argument("--config", type=str, default=None, help="Config file path")
+    parser.add_argument("--output_dir", type=str, default="outputs/evaluation", help="Output directory")
     parser.add_argument("--log_level", type=str, default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"])
     args = parser.parse_args()
 
@@ -151,20 +151,20 @@ def main() -> None:
     logger = logging.getLogger("main")
 
     config = load_config(args.config)
-    logger.info(f"配置加载完成: {args.config or 'configs/default.yaml'}")
+    logger.info(f"Config loaded: {args.config or 'configs/default.yaml'}")
 
     if args.benchmark == "research_bench":
         report = evaluate_research_bench(args.num_questions, args.domain, config)
     elif args.benchmark == "hotpotqa":
         report = evaluate_hotpotqa(args.num_questions, config, use_mock=args.use_mock)
     else:
-        raise ValueError(f"未知基准: {args.benchmark}")
+        raise ValueError(f"Unknown benchmark: {args.benchmark}")
 
     filepath = report.save(args.output_dir)
-    logger.info(f"评测报告已保存: {filepath}")
+    logger.info(f"Evaluation report saved: {filepath}")
 
     print("\n" + "=" * 60)
-    print("评测摘要")
+    print("Evaluation summary")
     print("=" * 60)
     print(json.dumps(report.summary, ensure_ascii=False, indent=2))
     print("=" * 60)

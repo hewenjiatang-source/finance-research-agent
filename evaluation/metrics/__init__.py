@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""evaluation/metrics — 评测指标模块。"""
+"""evaluation/metrics — evaluation metric modules."""
 
 from .rule_based import RuleBasedMetrics
 from .judge_based import JudgeBasedMetrics

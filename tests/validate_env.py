@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""验证 .env / .env.local 配置是否正确"""
+"""Verify that the .env / .env.local configuration is correct"""
 from __future__ import annotations
 
 import os
 import sys
 
-# 加载 .env
+# Load .env
 from dotenv import load_dotenv
 
 load_dotenv(dotenv_path=os.path.join(os.getcwd(), ".env"))
@@ -15,14 +15,14 @@ if os.path.exists(local_env):
 
 
 def check(key: str, expected_prefix: str = "", optional: bool = False) -> str:
-    """检查环境变量。"""
+    """Check an environment variable."""
     val = os.getenv(key)
     if not val:
         if optional:
-            return f"  ⚪ {key}: 未设置（可选，使用默认值）"
-        return f"  ❌ {key}: 未设置（必须配置）"
+            return f"  ⚪ {key}: not set (optional, default value used)"
+        return f"  ❌ {key}: not set (required)"
 
-    # 脱敏显示
+    # Masked display
     if "key" in key.lower() or "token" in key.lower():
         display = val[:6] + "***" + val[-4:] if len(val) > 10 else "***"
     else:
@@ -31,13 +31,13 @@ def check(key: str, expected_prefix: str = "", optional: bool = False) -> str:
     status = "✅"
     if expected_prefix and not val.startswith(expected_prefix):
         status = "⚠️ "
-        display += f" （建议以 {expected_prefix} 开头）"
+        display += f" (should start with {expected_prefix})"
 
     return f"  {status} {key}: {display}"
 
 
 print("=" * 60)
-print("LLM 后端配置检查")
+print("LLM backend configuration check")
 print("=" * 60)
 print(check("DEEPSEEK_API_KEY", optional=True))
 print(check("DEEPSEEK_BASE_URL", expected_prefix="https://"))
@@ -47,7 +47,7 @@ print(check("MIMO_MODEL"))
 
 print()
 print("=" * 60)
-print("工具层配置检查")
+print("Tool layer configuration check")
 print("=" * 60)
 print(check("SERPAPI_KEY", optional=True))
 print(check("SEARCH_BACKEND", optional=True))
@@ -57,39 +57,39 @@ print(check("SEMANTIC_SCHOLAR_API_KEY", optional=True))
 
 print()
 print("=" * 60)
-print("LangSmith 追踪配置（可选）")
+print("LangSmith tracing configuration (optional)")
 print("=" * 60)
 print(check("LANGSMITH_TRACING", optional=True))
 print(check("LANGSMITH_API_KEY", optional=True))
 
 print()
 print("=" * 60)
-print("关键配置建议")
+print("Key configuration suggestions")
 print("=" * 60)
 
-# 检查 mimo 配置
+# Check mimo configuration
 mimo_url = os.getenv("MIMO_BASE_URL", "")
 mimo_model = os.getenv("MIMO_MODEL", "")
 if "openrouter" in mimo_url and not mimo_model.startswith("xiaomi/"):
-    print("  ⚠️  MIMO 配置不匹配：")
-    print("      你用了 OpenRouter 的 URL，但模型名没加 xiaomi/ 前缀")
-    print("      修复方案：")
-    print("        方案 A（推荐）: MIMO_BASE_URL=https://token-plan-cn.xiaomimimo.com/v1")
-    print("        方案 B: MIMO_MODEL=xiaomi/mimo-v2.5-pro")
+    print("  ⚠️  MIMO configuration mismatch:")
+    print("      You are using the OpenRouter URL, but the model name has no xiaomi/ prefix")
+    print("      Fixes:")
+    print("        Option A (recommended): MIMO_BASE_URL=https://token-plan-cn.xiaomimimo.com/v1")
+    print("        Option B: MIMO_MODEL=xiaomi/mimo-v2.5-pro")
 elif "xiaomimimo" in mimo_url and mimo_model.startswith("xiaomi/"):
-    print("  ⚠️  MIMO 配置不匹配：")
-    print("      你用了小米官方 URL，但模型名加了 xiaomi/ 前缀（这是 OpenRouter 格式）")
-    print("      修复: MIMO_MODEL=mimo-v2.5-pro")
+    print("  ⚠️  MIMO configuration mismatch:")
+    print("      You are using the official Xiaomi URL, but the model name has the xiaomi/ prefix (this is the OpenRouter format)")
+    print("      Fix: MIMO_MODEL=mimo-v2.5-pro")
 else:
-    print("  ✅ MIMO 配置看起来正确")
+    print("  ✅ MIMO configuration looks correct")
 
-# 检查 search 后端
+# Check search backend
 search_backend = os.getenv("SEARCH_BACKEND", "serpapi").lower()
 if search_backend == "serpapi" and not os.getenv("SERPAPI_KEY"):
-    print("  ⚠️  SEARCH_BACKEND=serpapi，但 SERPAPI_KEY 未设置")
+    print("  ⚠️  SEARCH_BACKEND=serpapi，but SERPAPI_KEY is not set")
 elif search_backend == "bing" and not os.getenv("BING_SEARCH_KEY"):
-    print("  ⚠️  SEARCH_BACKEND=bing，但 BING_SEARCH_KEY 未设置")
+    print("  ⚠️  SEARCH_BACKEND=bing，but BING_SEARCH_KEY is not set")
 else:
-    print("  ✅ 搜索后端配置正确")
+    print("  ✅ Search backend configuration is correct")
 
 print()

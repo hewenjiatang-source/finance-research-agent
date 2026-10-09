@@ -1,21 +1,21 @@
 """
-LangSmith 追踪集成模块
+LangSmith tracing integration module
 
-为 DeepResearch Agent 提供可观测性支持，无需引入 LangChain/LangGraph 依赖。
-核心能力：
-  1. LLM 调用自动追踪（通过 wrap_openai 包装 VLLMPolicy 的 client）
-  2. Agent 流程手动埋点（通过 @traceable 装饰关键方法）
-  3. 环境变量控制开关（LANGSMITH_TRACING=true/false）
+Provides observability for the DeepResearch Agent without depending on LangChain/LangGraph.
+Core capabilities:
+  1. Automatic tracing of LLM calls (wrapping the VLLMPolicy client via wrap_openai)
+  2. Manual instrumentation of the agent flow (decorating key methods with @traceable)
+  3. Environment-variable switch (LANGSMITH_TRACING=true/false)
 
-用法：
-  1. 在 .env 中配置 LangSmith 环境变量
-  2. 系统会自动检测并开启追踪
-  3. 登录 https://smith.langchain.com 查看 trace 树
+Usage:
+  1. Configure the LangSmith environment variables in .env
+  2. The system detects them and enables tracing automatically
+  3. Log in to https://smith.langchain.com to view the trace tree
 
-设计原则：
-  - 零侵入：业务代码不感知追踪存在
-  - 可开关：通过环境变量一键启用/禁用
-  - 低成本：禁用时不创建任何 LangSmith 对象
+Design principles:
+  - Zero intrusion: business code is unaware of tracing
+  - Switchable: enable/disable with one environment variable
+  - Low cost: when disabled, no LangSmith objects are created
 """
 from __future__ import annotations
 
@@ -28,30 +28,30 @@ from typing import Any, Callable, TypeVar
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# 环境检测
+# Environment detection
 # ---------------------------------------------------------------------------
 
 
 def is_tracing_enabled() -> bool:
-    """检查 LangSmith 追踪是否启用。"""
+    """Check whether LangSmith tracing is enabled."""
     from .env_config import get_env
-    # get_env 会把空字符串转成 None，必须兜底，否则未配置 LangSmith 时会 AttributeError
+    # get_env turns an empty string into None, so guard against it; otherwise an AttributeError occurs when LangSmith is not configured
     return (get_env("LANGSMITH_TRACING") or "").lower() in ("true", "1", "yes")
 
 
 # ---------------------------------------------------------------------------
-# OpenAI Client 包装（自动追踪所有 LLM 调用）
+# OpenAI client wrapper (automatically traces all LLM calls)
 # ---------------------------------------------------------------------------
 
 
 def maybe_wrap_openai_client(client: Any) -> Any:
-    """包装 OpenAI 客户端以启用 LangSmith 自动 LLM 追踪。
+    """Wrap an OpenAI client to enable LangSmith automatic LLM tracing.
 
     Args:
-        client: 原始的 openai.OpenAI 实例。
+        client: the original openai.OpenAI instance.
 
     Returns:
-        包装后的 client（追踪开启时）或原始 client（追踪关闭时）。
+        The wrapped client (when tracing is on) or the original client (when off).
     """
     if not is_tracing_enabled():
         return client
@@ -59,24 +59,24 @@ def maybe_wrap_openai_client(client: Any) -> Any:
         from langsmith.wrappers import wrap_openai
         return wrap_openai(client, chat_name="ChatOpenAI")
     except Exception as e:
-        logger.warning(f"wrap_openai 失败，回退到原始 client: {e}")
+        logger.warning(f"wrap_openai failed, falling back to the original client: {e}")
         return client
 
 
 def maybe_wrap_anthropic_client(client: Any) -> Any:
-    """包装 Anthropic 客户端以启用 LangSmith 自动 LLM 追踪（未开启/未安装时原样返回）。"""
+    """Wrap an Anthropic client to enable LangSmith automatic LLM tracing (returned unchanged when disabled / not installed)."""
     if not is_tracing_enabled():
         return client
     try:
         from langsmith.wrappers import wrap_anthropic
         return wrap_anthropic(client)
     except Exception as e:
-        logger.warning(f"wrap_anthropic 失败，回退到原始 client: {e}")
+        logger.warning(f"wrap_anthropic failed, falling back to the original client: {e}")
         return client
 
 
 # ---------------------------------------------------------------------------
-# 兼容装饰器（支持 sync / async / class method）
+# Compatibility decorators (support sync / async / class methods)
 # ---------------------------------------------------------------------------
 
 
@@ -86,33 +86,33 @@ def traceable(
     tags: list[str] | None = None,
     metadata: dict[str, Any] | None = None,
 ) -> Callable:
-    """兼容装饰器：如果 LangSmith 开启则使用 @traceable，否则为无操作装饰器。
+    """Compatibility decorator: uses @traceable if LangSmith is on, otherwise a no-op decorator.
 
-    支持同步函数、异步函数、类方法。
+    Supports sync functions, async functions and class methods.
 
     Args:
-        run_type: LangSmith run 类型。常用值：
-                  "chain"   — 通用流程块
-                  "llm"     — LLM 调用（wrap_openai 已自动处理，一般不需要手动标）
-                  "tool"    — 工具调用
-                  "agent"   — Agent 执行
-                  "retriever" — 检索操作
-        name: 在 LangSmith UI 中显示的名称。为 None 时使用函数名。
-        tags: 标签列表，用于筛选和分组。
-        metadata: 附加元数据字典。
+        run_type: LangSmith run type. Common values:
+                  "chain"   — generic flow block
+                  "llm"     — LLM call (wrap_openai already handles it, usually no need to set manually)
+                  "tool"    — tool call
+                  "agent"   — agent execution
+                  "retriever" — retrieval operation
+        name: name shown in the LangSmith UI. When None, the function name is used.
+        tags: list of tags for filtering and grouping.
+        metadata: dict of extra metadata.
 
-    用法示例：
+    Usage example:
         @traceable(run_type="agent", tags=["m5", "red"])
         async def attack(self, report): ...
     """
     def decorator(func: Callable) -> Callable:
-        # 如果追踪未开启，直接返回原函数（零开销）
+        # if tracing is not enabled, return the original function (zero overhead)
         if not is_tracing_enabled():
             return func
 
         try:
             from langsmith import traceable as _ls_traceable
-            # 使用 LangSmith 原生装饰器
+            # use the native LangSmith decorator
             return _ls_traceable(
                 run_type=run_type,
                 name=name or func.__name__,
@@ -120,14 +120,14 @@ def traceable(
                 metadata=metadata or {},
             )(func)
         except Exception as e:
-            logger.warning(f"[LangSmith] traceable 装饰器应用失败 ({func.__name__}): {e}")
+            logger.warning(f"[LangSmith] failed to apply the traceable decorator ({func.__name__}): {e}")
             return func
 
     return decorator
 
 
 # ---------------------------------------------------------------------------
-# 手动追踪上下文（用于不便装饰器的场景）
+# Manual trace context (for cases where decorators are inconvenient)
 # ---------------------------------------------------------------------------
 
 
@@ -137,15 +137,15 @@ def trace_block(
     inputs: dict[str, Any] | None = None,
     tags: list[str] | None = None,
 ):
-    """上下文管理器：手动包裹一段代码块。
+    """Context manager: manually wrap a block of code.
 
-    用法示例：
+    Usage example:
         with trace_block("adversarial_loop", run_type="chain", inputs={"query": q}) as run:
             report = await loop.run(report)
             run.add_output({"score": report.final_score})
     """
     if not is_tracing_enabled():
-        # 返回一个 dummy context manager
+        # return a dummy context manager
         class _DummyRun:
             def add_output(self, outputs: dict) -> None:
                 pass
@@ -159,7 +159,7 @@ def trace_block(
         from langsmith.run_helpers import trace
         return trace(name=name, run_type=run_type, inputs=inputs or {}, tags=tags or [])
     except Exception as e:
-        logger.warning(f"[LangSmith] trace_block 创建失败: {e}")
+        logger.warning(f"[LangSmith] failed to create trace_block: {e}")
         from contextlib import contextmanager
         @contextmanager
         def _dummy():
@@ -171,25 +171,25 @@ def trace_block(
 
 
 # ---------------------------------------------------------------------------
-# 快捷装饰器（按场景预配置）
+# Shortcut decorators (preconfigured per scenario)
 # ---------------------------------------------------------------------------
 
 
 def trace_agent(name: str | None = None, tags: list[str] | None = None):
-    """Agent 执行追踪（run_type="chain"，LangSmith 不支持 "agent"）。"""
+    """Agent execution tracing (run_type="chain"; LangSmith does not support "agent")."""
     return traceable(run_type="chain", name=name, tags=tags)
 
 
 def trace_tool(name: str | None = None, tags: list[str] | None = None):
-    """工具调用追踪（run_type="tool"）。"""
+    """Tool-call tracing (run_type="tool")."""
     return traceable(run_type="tool", name=name, tags=tags)
 
 
 def trace_chain(name: str | None = None, tags: list[str] | None = None):
-    """通用流程追踪（run_type="chain"）。"""
+    """Generic flow tracing (run_type="chain")."""
     return traceable(run_type="chain", name=name, tags=tags)
 
 
 def trace_retriever(name: str | None = None, tags: list[str] | None = None):
-    """检索操作追踪（run_type="retriever"）。"""
+    """Retrieval tracing (run_type="retriever")."""
     return traceable(run_type="retriever", name=name, tags=tags)

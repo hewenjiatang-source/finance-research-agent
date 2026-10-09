@@ -1,5 +1,5 @@
-"""财报研究 Agent 的自研评测：引用核对（citation verification）+ 数据准确性（data accuracy）。
+"""In-house evaluation for the finance research agent: citation verification + data accuracy.
 
-分层设计：确定性规则优先（可复现、零成本），LLM 判官只做规则做不了的部分（语义蕴含），
-并用"注入已知错误"的元评测衡量评测器自己的检出率与误报率。
+Layered design: deterministic rules first (reproducible, zero cost); an LLM judge only for what rules cannot do (semantic entailment);
+and a meta-evaluation that injects known errors to measure the evaluator's own detection and false-positive rates.
 """

@@ -1,8 +1,8 @@
 """
-Agent 抽象基类
+Agent abstract base class
 
-所有可执行 SubTask 的 Agent 必须继承 BaseAgent。
-采用策略模式 (Strategy Pattern)：policy 对象通过依赖注入传入，便于单元测试时 mock。
+Every Agent that can execute a SubTask must inherit BaseAgent.
+Uses the Strategy Pattern: the policy object is injected via dependency injection, making it easy to mock in unit tests.
 """
 from __future__ import annotations
 
@@ -17,21 +17,21 @@ __all__ = ["BaseAgent"]
 
 
 class BaseAgent(ABC):
-    """Agent 抽象基类。
+    """Agent abstract base class.
 
     Attributes:
-        name: Agent 实例名称，用于日志和监控。
-        policy: VLLMPolicy 实例，提供 LLM 调用能力。
-        tools: 当前 Agent 可用的工具列表。
+        name: Agent instance name, used for logging and monitoring.
+        policy: VLLMPolicy instance providing LLM call capability.
+        tools: list of tools available to this Agent.
     """
 
     def __init__(self, name: str, policy, tools: list | None = None):
-        """初始化 Agent。
+        """Initialize the Agent.
 
         Args:
-            name: Agent 名称。
-            policy: VLLMPolicy 实例（或任何实现了 __call__(messages) 接口的对象）。
-            tools: 可选的工具列表，元素需有 name / description / execute 接口。
+            name: Agent name.
+            policy: VLLMPolicy instance (or any object implementing the __call__(messages) interface).
+            tools: optional list of tools; each element needs name / description / execute.
         """
         self.name = name
         self.policy = policy
@@ -39,14 +39,14 @@ class BaseAgent(ABC):
 
     @abstractmethod
     async def run(self, task: "SubTask", context: dict) -> "AgentResult":
-        """执行给定的 SubTask。
+        """Execute the given SubTask.
 
         Args:
-            task: 待执行的原子任务。
-            context: 全局共享上下文（Memory 的快照），只读。
+            task: the atomic task to execute.
+            context: global shared context (a snapshot of Memory), read-only.
 
         Returns:
-            AgentResult: 包含状态、输出、轨迹等。
+            AgentResult: containing status, output, trajectory, etc.
         """
         pass
 

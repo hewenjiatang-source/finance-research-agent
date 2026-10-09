@@ -3,10 +3,10 @@
 """
 evaluation/metrics/judge_based.py
 ================================================================================
-基于 LLM-as-Judge 的深度评测指标。
+Deep evaluation metrics based on LLM-as-Judge.
 
-适用于需要主观专家判断的场景（抽查、对比分析、最终质量验证）。
-底层调用 src.core.judge.LLMJudge，保持与核心层的单向依赖。
+Suited to scenarios that need subjective expert judgment (spot checks, comparative analysis, final quality validation).
+Calls src.core.judge.LLMJudge underneath, keeping a one-way dependency on the core layer.
 ================================================================================
 """
 
@@ -16,7 +16,7 @@ from typing import Any
 
 
 class JudgeBasedMetrics:
-    """研究报告质量评测指标集合（LLM Judge 版）。"""
+    """Collection of research-report quality evaluation metrics (LLM Judge edition)."""
 
     @staticmethod
     def judge_score(
@@ -26,19 +26,19 @@ class JudgeBasedMetrics:
         backend: str = "claude",
     ) -> dict[str, Any]:
         """
-        使用 MiMo 2.5 Pro 作为 Judge 对报告进行多维度评分。
+        Use MiMo 2.5 Pro as the Judge to score the report across multiple dimensions.
 
-        当规则指标不足以精确评估时，调用此方法获取 LLM 的定性判断。
-        返回结构包含事实准确性、逻辑一致性、引用质量、整体置信度。
+        When rule-based metrics are insufficient for precise evaluation, call this method to obtain the LLM's qualitative judgment.
+        The returned structure includes factual accuracy, logical consistency, citation quality, and overall confidence.
 
         Args:
-            report: 生成的研究报告文本。
-            query: 原始研究问题。
-            ground_truth: 期望包含的关键事实（可选）。
-            backend: Judge 后端名称。
+            report: Generated research report text.
+            query: Original research question.
+            ground_truth: Key facts expected to be included (optional).
+            backend: Judge backend name.
 
         Returns:
-            包含各维度得分和理由的字典。
+            Dict containing per-dimension scores and rationales.
         """
         from src.core.judge import LLMJudge
 

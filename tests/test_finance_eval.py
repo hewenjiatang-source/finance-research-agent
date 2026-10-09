@@ -1,4 +1,4 @@
-"""财报评测模块的单元测试（全部离线）。"""
+"""Unit tests for the financial-report evaluation module (all offline)."""
 from __future__ import annotations
 
 import copy
@@ -65,9 +65,9 @@ class TestAccuracy(unittest.TestCase):
             self.assertEqual([x.status for x in r], ["correct"], t)
 
     def test_rounding_aware(self):
-        self.assertEqual(acc("FY2023 revenue was about 48.3 billion USD.")[0].status, "correct")  # 48.25 四舍五入到 1 位小数
+        self.assertEqual(acc("FY2023 revenue was about 48.3 billion USD.")[0].status, "correct")  # 48.25 rounded to 1 decimal place
         self.assertEqual(acc("FY2023 net income was 7.4 billion USD.")[0].status, "correct")  # 7.425→7.4
-        self.assertEqual(acc("FY2023 revenue was 48.4 billion USD.")[0].error_type, "imprecise")  # 超出写出精度但 <1%
+        self.assertEqual(acc("FY2023 revenue was 48.4 billion USD.")[0].error_type, "imprecise")  # beyond the written precision but <1%
         self.assertEqual(acc("FY2023 net income was 7.5 billion USD.")[0].status, "incorrect")
 
     def test_error_taxonomy(self):
@@ -116,7 +116,7 @@ class TestCitations(unittest.TestCase):
         self.assertNotIn(9.87e12, [round(v) for v, _ in evidence_candidates(self.EV[1]["text"])])
 
     def test_clause_level_attribution(self):
-        # 同一句里前一半引 [1]、后一半引 [2]：错配要能被发现
+        # First half of the sentence cites [1], second half cites [2]: the mismatch must be detected
         s = self.st("Revenue was 48,250.0 million USD [1], and operating income was 9,870.0 million USD [1].")
         self.assertEqual(s, ["supported", "misattributed"])
 
@@ -133,10 +133,10 @@ class TestJudge(unittest.TestCase):
         rep = "Management attributes the growth to strong iPhone demand across regions [1].\nRevenue was 5.0 billion USD [1]."
         j = ClaimJudge(policy)
         out = j.judge_report(parse_report(rep), ev)
-        self.assertEqual(out["n_claims"], 1)  # 含数字的句子交给规则层
+        self.assertEqual(out["n_claims"], 1)  # sentences containing numbers go to the rule layer
         self.assertEqual(out["entailed_rate"], 1.0)
         j.judge_report(parse_report(rep), ev)
-        self.assertEqual(len(calls), 1)  # 缓存命中
+        self.assertEqual(len(calls), 1)  # cache hit
 
     def test_failure_is_contained(self):
         def boom(msgs):
@@ -174,7 +174,7 @@ class TestMetaEval(unittest.TestCase):
         self.assertGreaterEqual(res["clean"]["mapping_rate"], 0.9)
         for name, v in res["perturbations"].items():
             self.assertGreater(v["n"], 0, name)
-            floor = 0.5 if name == "dropped_citation" else 1.0  # 见 README：逗号并列子句共享引用时无法判定漏引
+            floor = 0.5 if name == "dropped_citation" else 1.0  # See README: a missing citation cannot be determined when comma-separated clauses share a citation
             self.assertGreaterEqual(v["detection_rate"], floor, name)
             self.assertGreaterEqual(v["type_accuracy"], floor, name)
 
@@ -196,7 +196,7 @@ class TestSuite(unittest.TestCase):
             res = evaluate_dir(d, [case, {**case, "id": "absent"}])
             self.assertEqual(res[0]["status"], "ok")
             self.assertEqual(res[1]["status"], "missing_report")
-            self.assertEqual(res[0]["hard_flags"], [])  # 参考来源里的数字不被当作断言
+            self.assertEqual(res[0]["hard_flags"], [])  # numbers in the references section are not treated as claims
             agg = aggregate(res)
             self.assertEqual(agg["accuracy"]["accuracy"]["value"], 1.0)
             self.assertEqual(agg["citation"]["precision"]["value"], 1.0)
