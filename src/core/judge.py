@@ -24,7 +24,7 @@ logger = logging.getLogger("judge")
 class LLMJudge:
     """基于 MiMo 2.5 Pro 的 LLM-as-Judge 评审器。"""
 
-    def __init__(self, backend: str = "mimo") -> None:
+    def __init__(self, backend: str = "claude") -> None:
         """
         Args:
             backend: Judge 后端名称，对应 ModelRouter 注册的后端。
@@ -61,7 +61,7 @@ class LLMJudge:
                 "comprehensiveness": {"score": 7, "reason": "..."}
               },
               "average": 7.5,
-              "judge_backend": "mimo"
+              "judge_backend": "claude"
             }
         """
         gt_section = ""
@@ -142,7 +142,7 @@ class LLMJudge:
               "accuracy": {"A": 3, "B": 4, "reason": "..."},
               "structure": {"A": 4, "B": 4, "reason": "..."},
               "sources": {"A": 3, "B": 5, "reason": "..."},
-              "judge_backend": "mimo"
+              "judge_backend": "claude"
             }
         """
         prompt = f"""你是一位严谨的研究报告评审专家。请对比以下两份研究报告，从 4 个维度评分（1-5分）。

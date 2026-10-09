@@ -57,7 +57,7 @@ def initialize_evolution(config: dict) -> Any:
     from src.models.model_router import ModelRouter
 
     model_cfg = config.get("model", {})
-    backend = model_cfg.get("backend", "deepseek")
+    backend = model_cfg.get("backend", "claude")
     backend_sampling = model_cfg.get("backend_sampling", {})
     kwargs = backend_sampling.get(backend, {})
     policy = ModelRouter.create_backend(backend, **kwargs)

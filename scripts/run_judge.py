@@ -34,7 +34,7 @@ def main() -> None:
     parser.add_argument("--query", type=str, required=True, help="原始研究问题")
     parser.add_argument("--ground_truth_file", type=str, default=None, help="ground_truth JSON 文件")
     parser.add_argument("--output", type=str, default=None, help="评分结果输出 JSON 路径")
-    parser.add_argument("--backend", type=str, default="mimo", help="Judge 后端名称")
+    parser.add_argument("--backend", type=str, default="claude", help="Judge 后端名称")
     args = parser.parse_args()
 
     # 读取报告

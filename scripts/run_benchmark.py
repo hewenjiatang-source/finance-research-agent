@@ -41,7 +41,7 @@ def run_baseline(query: str, config: dict) -> dict:
     """用默认后端直接调用 LLM，返回报告文本。"""
     from src.models.model_router import ModelRouter
 
-    policy = ModelRouter.create_backend("deepseek")
+    policy = ModelRouter.create_backend("claude")
     messages = [
         {
             "role": "system",
@@ -101,7 +101,7 @@ def auto_score(report_a: str, report_b: str, query: str) -> dict:
     """
     from src.core.judge import LLMJudge
     try:
-        judge = LLMJudge(backend="mimo")
+        judge = LLMJudge(backend="claude")
         return judge.compare_two(report_a, report_b, query)
     except Exception as e:
         print(f"[AutoScore] MiMo Judge 评分失败: {e}")

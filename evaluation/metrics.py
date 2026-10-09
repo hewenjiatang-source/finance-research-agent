@@ -330,7 +330,7 @@ class ResearchMetrics:
 }}"""
 
         try:
-            policy = ModelRouter.create_backend("mimo")
+            policy = ModelRouter.create_backend("claude")
             messages = [
                 {"role": "system", "content": "你是研究报告评审专家。必须输出合法 JSON，不要输出任何其他内容。"},
                 {"role": "user", "content": prompt},
@@ -347,9 +347,9 @@ class ResearchMetrics:
                 result["judge_backend"] = "mimo"
                 return result
         except Exception as e:
-            return {"error": str(e), "judge_backend": "mimo"}
+            return {"error": str(e), "judge_backend": "claude"}
 
-        return {"error": "无法解析 MiMo Judge 输出", "judge_backend": "mimo"}
+        return {"error": "无法解析 Judge 输出", "judge_backend": "claude"}
 
 
 # =============================================================================

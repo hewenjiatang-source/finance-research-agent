@@ -18,8 +18,11 @@
 # 核心依赖（必须安装）
 # ---------------------------------------------------------------------------
 
-# LLM 客户端：调用 DeepSeek / OpenAI / vLLM 等 OpenAI 兼容 API
-openai>=1.0
+# LLM 客户端：Anthropic Claude（默认后端）
+anthropic>=0.40.0
+
+# 可选：OpenAI 兼容后端（DeepSeek / vLLM / OpenAI），仅在 backend_mapping 使用它们时才需要
+# openai>=1.0
 
 # HuggingFace 生态：Tokenizer、模型加载
 transformers>=4.40

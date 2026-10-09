@@ -35,7 +35,8 @@ logger = logging.getLogger(__name__)
 def is_tracing_enabled() -> bool:
     """检查 LangSmith 追踪是否启用。"""
     from .env_config import get_env
-    return get_env("LANGSMITH_TRACING", "").lower() in ("true", "1", "yes")
+    # get_env 会把空字符串转成 None，必须兜底，否则未配置 LangSmith 时会 AttributeError
+    return (get_env("LANGSMITH_TRACING") or "").lower() in ("true", "1", "yes")
 
 
 # ---------------------------------------------------------------------------
@@ -59,6 +60,18 @@ def maybe_wrap_openai_client(client: Any) -> Any:
         return wrap_openai(client, chat_name="ChatOpenAI")
     except Exception as e:
         logger.warning(f"wrap_openai 失败，回退到原始 client: {e}")
+        return client
+
+
+def maybe_wrap_anthropic_client(client: Any) -> Any:
+    """包装 Anthropic 客户端以启用 LangSmith 自动 LLM 追踪（未开启/未安装时原样返回）。"""
+    if not is_tracing_enabled():
+        return client
+    try:
+        from langsmith.wrappers import wrap_anthropic
+        return wrap_anthropic(client)
+    except Exception as e:
+        logger.warning(f"wrap_anthropic 失败，回退到原始 client: {e}")
         return client
 
 

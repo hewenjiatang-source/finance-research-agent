@@ -13,8 +13,6 @@ import json
 import re
 from typing import Optional
 
-from openai import OpenAI
-
 
 __all__ = ["VLLMPolicy", "OpenAICompatibleDict"]
 
@@ -54,6 +52,8 @@ class VLLMPolicy:
         max_tokens: int = 1024,
         tools: Optional[list[dict]] = None,
     ):
+        from openai import OpenAI  # 懒加载：仅在使用 OpenAI 兼容后端时才需要安装 openai
+
         raw_client = OpenAI(base_url=base_url, api_key=api_key)
         # 如果 LangSmith 追踪开启，自动包装 client 以追踪所有 LLM 调用
         from ..utils.tracing import maybe_wrap_openai_client

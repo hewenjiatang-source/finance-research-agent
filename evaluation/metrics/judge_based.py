@@ -23,7 +23,7 @@ class JudgeBasedMetrics:
         report: str,
         query: str,
         ground_truth: dict[str, Any] | None = None,
-        backend: str = "mimo",
+        backend: str = "claude",
     ) -> dict[str, Any]:
         """
         使用 MiMo 2.5 Pro 作为 Judge 对报告进行多维度评分。

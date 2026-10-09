@@ -2,9 +2,8 @@
 多后端 LLM 路由器 (Model Router)
 
 支持通过环境变量 (.env) 配置多个 LLM 后端，运行时动态切换：
-  - DeepSeek API
-  - 本地 vLLM
-  - OpenAI / 任何 OpenAI 兼容 API
+  - Claude（Anthropic Messages API，默认后端；name = "claude" 或 "anthropic"）
+  - DeepSeek API / 本地 vLLM / OpenAI 及任何 OpenAI 兼容 API（保留，便于对照实验）
 
 设计要点:
   1. 零源码修改切换后端：所有敏感信息（API Key / URL）都放在 .env 文件中
@@ -24,16 +23,22 @@
 """
 from __future__ import annotations
 
+import json
 import os
+from typing import Union
 
 from ..utils.env_config import ensure_env_loaded, get_env
+from .claude_policy import ClaudePolicy, DEFAULT_CLAUDE_MODEL
 from .vllm_policy import VLLMPolicy
 
 
 __all__ = ["ModelRouter"]
 
+# Claude 后端的名字别名（均指向 Anthropic Messages API）
+_CLAUDE_NAMES = ("claude", "anthropic")
+
 # 全局缓存，避免重复读取 .env 和创建 client
-_BACKEND_CACHE: dict[str, VLLMPolicy] = {}
+_BACKEND_CACHE: dict[str, Union[VLLMPolicy, ClaudePolicy]] = {}
 
 
 class ModelRouter:
@@ -46,8 +51,8 @@ class ModelRouter:
     def create_backend(
         backend_name: str | None = None,
         **override_kwargs,
-    ) -> VLLMPolicy:
-        """创建指定名称的 LLM Backend（返回 VLLMPolicy 实例）。
+    ) -> Union[VLLMPolicy, ClaudePolicy]:
+        """创建指定名称的 LLM Backend（ClaudePolicy 或 VLLMPolicy，二者接口一致）。
 
         Args:
             backend_name: 后端名称，对应 .env 中的前缀。
@@ -62,10 +67,10 @@ class ModelRouter:
         """
         ensure_env_loaded()
 
-        name = (backend_name or get_env("DEFAULT_LLM_BACKEND", "vllm")).lower().strip()
+        name = (backend_name or get_env("DEFAULT_LLM_BACKEND", "claude")).lower().strip()
 
-        # 检查缓存
-        cache_key = f"{name}:{hash(tuple(sorted(override_kwargs.items())))}"
+        # 检查缓存（kwargs 可能含 dict，不能直接 hash）
+        cache_key = f"{name}:{json.dumps(override_kwargs, sort_keys=True, default=str)}"
         if cache_key in _BACKEND_CACHE:
             return _BACKEND_CACHE[cache_key]
 
@@ -73,32 +78,32 @@ class ModelRouter:
         config = ModelRouter._load_backend_config(name)
         config.update(override_kwargs)
 
-        # 创建 VLLMPolicy 实例
-        policy = VLLMPolicy(**config)
+        # 创建 Policy 实例：Claude 走 Anthropic SDK，其余走 OpenAI 兼容客户端
+        policy = ClaudePolicy(**config) if name in _CLAUDE_NAMES else VLLMPolicy(**config)
         _BACKEND_CACHE[cache_key] = policy
         return policy
 
     @staticmethod
-    def get_all_backends(backend_names: list[str] | None = None) -> dict[str, VLLMPolicy]:
+    def get_all_backends(backend_names: list[str] | None = None) -> dict[str, Union[VLLMPolicy, ClaudePolicy]]:
         """预加载并返回所有已配置的后端。
 
         Args:
             backend_names: 指定要扫描的后端名称列表。为 None 时扫描全部已知后端
-                          （deepseek, vllm, openai, mimo 及任何自定义前缀）。
+                          （claude, deepseek, vllm, openai, mimo 及任何自定义前缀）。
 
         常用于"主模型用 DeepSeek，Red Agent 用 MiMo"的场景。
         """
         ensure_env_loaded()
-        backends: dict[str, VLLMPolicy] = {}
+        backends: dict[str, Union[VLLMPolicy, ClaudePolicy]] = {}
 
         # 默认扫描所有已知内置后端 + 环境变量中发现的自定义后端
         if backend_names is None:
-            backend_names = ["deepseek", "vllm", "openai", "mimo"]
-            # 自动发现 .env 中其他以 _API_KEY 结尾的自定义后端
+            backend_names = ["claude", "deepseek", "vllm", "openai", "mimo"]
+            # 自动发现 .env 中其他以 _API_KEY 结尾的自定义后端（anthropic 是 claude 的别名，跳过）
             for key in os.environ:
                 if key.endswith("_API_KEY"):
                     prefix = key[:-len("_API_KEY")].lower()
-                    if prefix not in backend_names:
+                    if prefix not in backend_names and prefix not in _CLAUDE_NAMES:
                         backend_names.append(prefix)
 
         for name in backend_names:
@@ -117,6 +122,8 @@ class ModelRouter:
     @staticmethod
     def _is_backend_configured(name: str) -> bool:
         """检查某个后端是否已在 .env 中配置。"""
+        if name in _CLAUDE_NAMES:
+            return any(get_env(k) is not None for k in ("ANTHROPIC_API_KEY", "CLAUDE_API_KEY", "ANTHROPIC_BASE_URL"))
         prefix = name.upper()
         return get_env(f"{prefix}_API_KEY") is not None or get_env(f"{prefix}_BASE_URL") is not None
 
@@ -127,6 +134,9 @@ class ModelRouter:
         环境变量命名规范: {PREFIX}_{PARAM}
           例如: DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, DEEPSEEK_MODEL
         """
+        if name in _CLAUDE_NAMES:
+            return ModelRouter._load_claude_config()
+
         prefix = name.upper()
 
         api_key = get_env(f"{prefix}_API_KEY")
@@ -188,4 +198,38 @@ class ModelRouter:
         if name == "mimo" and "base_url" not in config:
             config["base_url"] = "https://api.xiaomimimo.com/v1"
 
+        return config
+
+    @staticmethod
+    def _load_claude_config() -> dict:
+        """Claude 后端配置。
+
+        环境变量:
+          ANTHROPIC_API_KEY  (或 CLAUDE_API_KEY)  API Key
+          ANTHROPIC_BASE_URL (可选)                网关/代理地址
+          CLAUDE_MODEL       (可选)                默认 claude-sonnet-5-5
+          CLAUDE_MAX_RETRIES / CLAUDE_TIMEOUT / CLAUDE_MAX_INPUT_CHARS (可选)
+        """
+        api_key = get_env("ANTHROPIC_API_KEY") or get_env("CLAUDE_API_KEY")
+        base_url = get_env("ANTHROPIC_BASE_URL")
+        if api_key is None and base_url is None:
+            raise ValueError(
+                "后端 'claude' 未配置。请在 .env 或 .env.local 中设置 ANTHROPIC_API_KEY。"
+            )
+
+        config: dict = {"model_name": get_env("CLAUDE_MODEL", DEFAULT_CLAUDE_MODEL)}
+        if api_key is not None:
+            config["api_key"] = api_key
+        if base_url is not None:
+            config["base_url"] = base_url
+        if get_env("CLAUDE_MAX_RETRIES") is not None:
+            config["max_retries"] = int(get_env("CLAUDE_MAX_RETRIES"))
+        if get_env("CLAUDE_TIMEOUT") is not None:
+            config["timeout"] = float(get_env("CLAUDE_TIMEOUT"))
+        if get_env("CLAUDE_MAX_INPUT_CHARS") is not None:
+            config["max_input_chars"] = int(get_env("CLAUDE_MAX_INPUT_CHARS"))
+        for suffix, cast, key in (("TEMPERATURE", float, "temperature"), ("MAX_TOKENS", int, "max_tokens")):
+            val = get_env(f"CLAUDE_{suffix}")
+            if val is not None:
+                config[key] = cast(val)
         return config
