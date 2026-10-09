@@ -452,9 +452,12 @@ class ClaudePolicy:
     # ------------------------------------------------------------------
     @staticmethod
     def _is_sampling_error(e: Exception) -> bool:
+        low = str(e).lower()
+        if isinstance(e, TypeError):
+            # client-side rejection: the installed SDK's create()/stream() does not accept the parameter
+            return "unexpected keyword" in low and ("temperature" in low or "top_p" in low)
         if getattr(e, "status_code", None) != 400:
             return False
-        low = str(e).lower()
         return "temperature" in low or "top_p" in low
 
     def _parse_response(self, resp: Any) -> OpenAICompatibleDict:

@@ -305,6 +305,14 @@ class TestPolicyCall(unittest.TestCase):
         pol([{"role": "user", "content": "q2"}])
         self.assertNotIn("temperature", fm.calls[2])  # already remembered
 
+    def test_sdk_typeerror_on_temperature_retries_without(self):
+        # the installed SDK itself rejects the kwarg (client-side TypeError, no HTTP status)
+        err = TypeError("Messages.create() got an unexpected keyword argument 'temperature'")
+        pol, fm = make_policy([err, text_resp("fine")], temperature=0.5)
+        out = pol([{"role": "user", "content": "q"}])
+        self.assertEqual(out["content"], "fine")
+        self.assertNotIn("temperature", fm.calls[1])
+
     def test_context_overflow_raises_runtime_error(self):
         pol, _ = make_policy([APIError("prompt is too long: 1200000 tokens > 1000000 maximum", 400)])
         with self.assertRaises(RuntimeError) as cm:
