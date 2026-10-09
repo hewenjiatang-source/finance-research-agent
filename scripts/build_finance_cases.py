@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""从 watchlist.yaml + SEC companyfacts 构建带金标准的评测用例。需要联网访问 data.sec.gov 与 SEC_USER_AGENT。
+"""Build evaluation cases with XBRL gold from watchlist.yaml + SEC companyfacts. Needs network access to data.sec.gov and SEC_USER_AGENT.
 
     python scripts/build_finance_cases.py --watchlist evaluation/finance/cases/watchlist.yaml \
         --out evaluation/finance/cases/real_cases.json
@@ -24,12 +24,12 @@ def build(watch: list[dict], client: SecClient) -> list[dict]:
     for w in watch:
         info = client.resolve_company(w["ticker"])
         if not info:
-            print(f"[skip] {w['id']}: 未找到 {w['ticker']}", file=sys.stderr)
+            print(f"[skip] {w['id']}: ticker {w['ticker']} not found", file=sys.stderr)
             continue
         cf = client.get_json(f"https://data.sec.gov/api/xbrl/companyfacts/CIK{info['cik']:010d}.json")
         case = build_case(w["id"], w["query"], cf, w["fiscal_year"], w["ticker"], w.get("aliases"))
         if w["fiscal_year"] and f"FY{w['fiscal_year']}" not in case["gold"]:
-            print(f"[skip] {w['id']}: companyfacts 里没有 FY{w['fiscal_year']} 10-K 数据", file=sys.stderr)
+            print(f"[skip] {w['id']}: no FY{w['fiscal_year']} 10-K data in companyfacts", file=sys.stderr)
             continue
         cases.append(case)
     return cases

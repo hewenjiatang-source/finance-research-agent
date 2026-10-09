@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
-"""财报研究评测入口。
+"""Finance research evaluation entry point.
 
-  # 1) 离线评测已有报告（无需 API / 网络）：目录里放 <case_id>.md + <case_id>.evidence.json
+  # 1) Offline evaluation of existing reports (no API / network): directory holds <case_id>.md + <case_id>.evidence.json
   python scripts/run_finance_eval.py --cases evaluation/finance/cases/real_cases.json --reports outputs/finance_eval
 
-  # 2) 先让 Agent 跑完所有用例再评测（需要 ANTHROPIC_API_KEY、SEC_USER_AGENT）
+  # 2) Run the agent on every case first, then evaluate (needs ANTHROPIC_API_KEY, SEC_USER_AGENT)
   python scripts/run_finance_eval.py --cases ... --run --reports outputs/finance_eval
 
-  # 3) 只做评测器自检（元评测，纯离线）：向合成干净报告注入已知错误，看检出率/误报率
+  # 3) Evaluator self-check only (meta-evaluation, fully offline): inject known errors into clean synthetic reports
   python scripts/run_finance_eval.py --meta-only
 
-  # 可选：--judge 打开 LLM 判官（评非数字断言；默认用 claude-opus-5-5，建议不同于被测模型）
+  # Optional: --judge enables the LLM judge (non-numeric claims only; default claude-opus-5-5, ideally different from the model under test)
 """
 from __future__ import annotations
 
@@ -57,12 +57,12 @@ def run_agent(cases: list[dict], out_dir: Path, config_path: str, adversarial: b
     out_dir.mkdir(parents=True, exist_ok=True)
     for c in cases:
         if (out_dir / f"{c['id']}.md").exists():
-            print(f"[skip] {c['id']} 已有报告")
+            print(f"[skip] {c['id']} report already exists")
             continue
         print(f"[run] {c['id']}: {c['query'][:60]}")
         text, report = asyncio.run(run_research_full(c["query"], config, modules))
         p = save_report(text, c["query"], str(out_dir), evidence=report.evidence)
-        # 统一成 <case_id>.md / .evidence.json
+        # normalise to <case_id>.md / .evidence.json
         Path(p).rename(out_dir / f"{c['id']}.md")
         Path(p[:-3] + ".evidence.json").rename(out_dir / f"{c['id']}.evidence.json")
 

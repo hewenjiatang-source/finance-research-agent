@@ -1,4 +1,4 @@
-"""评测套件：加载用例 → 评测一批报告 → 汇总（合并计数 + Wilson 区间）→ Markdown 报告。"""
+"""Evaluation suite: load cases -> evaluate a batch of reports -> aggregate (pooled counts + Wilson CI) -> Markdown report."""
 from __future__ import annotations
 
 import json
@@ -101,22 +101,22 @@ def _pct(x) -> str:
 
 
 def render_markdown(agg: dict, results: list[dict], meta: dict | None = None) -> str:
-    L = ["# 财报研究 Agent 评测报告", "", f"评测用例 {agg['n_evaluated']}/{agg['n_cases']}"]
+    L = ["# Finance Research Agent — Evaluation Report", "", f"Cases evaluated: {agg['n_evaluated']}/{agg['n_cases']}"]
     if agg.get("missing"):
-        L.append(f"（缺失: {', '.join(agg['missing'])}）")
+        L.append(f"(missing: {', '.join(agg['missing'])})")
     if "citation" in agg:
         c, a = agg["citation"], agg["accuracy"]
         ci = lambda d: f" (95% CI {_pct(d['ci95'][0])}–{_pct(d['ci95'][1])})" if d.get("ci95") else ""  # noqa: E731
-        L += ["", "## 引用核对", "",
-              f"- 引用精度（被引来源确含该数字）: **{_pct(c['precision']['value'])}**{ci(c['precision'])}，n={c['precision']['n']}",
-              f"- 引用覆盖（数字中带引用的比例）: {_pct(c['coverage']['value'])}",
-              f"- 无引用且无证据可查的数字占比（疑似凭记忆）: {_pct(c['uncited_ungrounded_rate']['value'])}",
-              f"- 含悬空引用编号的报告数: {c['reports_with_dangling_ids']}",
-              f"- 明细: {c['counts']}", "", "## 数据准确性（对 SEC XBRL 金标准）", "",
-              f"- 准确率: **{_pct(a['accuracy']['value'])}**{ci(a['accuracy'])}，可映射数字 n={a['accuracy']['n']}，映射率 {_pct(a['mapping_rate'])}",
-              f"- 核心指标召回（营收/净利润/EPS 是否写对）: {_pct(a['headline_recall_mean'])}",
-              f"- 错误分类: {a['errors']}", f"- 触发硬性标记的报告: {agg['reports_with_hard_flags']}"]
-    L += ["", "## 逐用例", "", "| case | 引用精度 | 准确率 | 悬空引用 | 硬性标记 |", "|---|---|---|---|---|"]
+        L += ["", "## Citation verification", "",
+              f"- Citation precision (cited source really contains the number): **{_pct(c['precision']['value'])}**{ci(c['precision'])}, n={c['precision']['n']}",
+              f"- Citation coverage (share of numbers that carry a citation): {_pct(c['coverage']['value'])}",
+              f"- Uncited numbers with no supporting evidence (likely from memory): {_pct(c['uncited_ungrounded_rate']['value'])}",
+              f"- Reports with dangling citation ids: {c['reports_with_dangling_ids']}",
+              f"- Breakdown: {c['counts']}", "", "## Data accuracy (vs SEC XBRL gold)", "",
+              f"- Accuracy: **{_pct(a['accuracy']['value'])}**{ci(a['accuracy'])}, mapped numbers n={a['accuracy']['n']}, mapping rate {_pct(a['mapping_rate'])}",
+              f"- Headline recall (revenue / net income / EPS reported correctly): {_pct(a['headline_recall_mean'])}",
+              f"- Error taxonomy: {a['errors']}", f"- Reports with hard flags: {agg['reports_with_hard_flags']}"]
+    L += ["", "## Per case", "", "| case | citation precision | accuracy | dangling ids | hard flags |", "|---|---|---|---|---|"]
     for r in results:
         if r.get("status") != "ok":
             L.append(f"| {r['id']} | {r['status']} | | | |")
@@ -125,16 +125,17 @@ def render_markdown(agg: dict, results: list[dict], meta: dict | None = None) ->
                  f"| {r['citation']['dangling_ids'] or '-'} | {', '.join(r['hard_flags']) or '-'} |")
     if meta:
         cl = meta["clean"]
-        L += ["", "## 评测器自检（元评测：向合成干净报告注入已知错误）", "",
-              f"- 干净报告误报率: {_pct(cl['false_positive_rate'])}（{cl['reports_with_false_flags']}/{cl['n_reports']} 份），"
-              f"数字映射率 {_pct(cl['mapping_rate'])}", "", "| 注入的错误 | n | 检出率 | 归类正确率 |", "|---|---|---|---|"]
+        L += ["", "## Evaluator self-check (meta-evaluation: known errors injected into clean synthetic reports)", "",
+              f"- False-positive rate on clean reports: {_pct(cl['false_positive_rate'])} ({cl['reports_with_false_flags']}/{cl['n_reports']} reports), "
+              f"number-mapping rate {_pct(cl['mapping_rate'])}", "",
+              "| Injected error | n | Detection rate | Type accuracy |", "|---|---|---|---|"]
         for k, v in meta["perturbations"].items():
             L.append(f"| {k} | {v['n']} | {_pct(v['detection_rate'])} | {_pct(v['type_accuracy'])} |")
-        L += ["", "> 注入错误是人造的、报告句式规整，检出率是评测器的**上界**；真实模型的错误更杂。"]
-    L += ["", "## 方法局限", "",
-          "- 数字→(指标, 期间) 的映射是启发式（别名表 + 就近原则），映射不了的数字计入『未映射』而不是『正确』。",
-          "- 金标准目前只覆盖 XBRL 标准概念；MD&A 里的分部数据、非 GAAP 指标、指引、日期不在自动核对范围内。",
-          "- 引用核对在『子句』粒度判断：同一子句挂多个引用时，只要其中之一含该数字就算支持。",
-          "- 金标准取数与 Agent 工具共用 select_period 代码；取数逻辑本身的正确性由人工核对的 truth.json 回归测试单独保证。",
-          "- LLM 判官（若开启）只评非数字断言，且存在模型自偏好，不并入硬指标。"]
+        L += ["", "> Injected errors are synthetic and the report phrasing is regular, so these detection rates are an **upper bound**; real model errors are messier."]
+    L += ["", "## Limitations", "",
+          "- Mapping a number to (metric, period) is heuristic (alias table + proximity). Unmappable numbers are counted as unmapped, never as correct.",
+          "- Gold covers standard XBRL concepts only; MD&A segment data, non-GAAP measures, guidance and dates are not auto-checked.",
+          "- Citations are judged at clause level: if a clause carries several citations, one of them containing the number is enough.",
+          "- Gold extraction shares `select_period` with the agent's tool; extraction correctness itself is covered by the hand-checked truth.json regression test.",
+          "- The LLM judge (if enabled) only grades non-numeric claims and has self-preference bias; it is not part of the hard metrics."]
     return "\n".join(L) + "\n"

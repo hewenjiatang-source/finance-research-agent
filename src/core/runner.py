@@ -414,7 +414,7 @@ async def run_research_full(query: str, config: dict, modules: dict[str, Any]):
     logger.info(f"研究完成，耗时: {elapsed:.2f} 秒")
 
     # 组装最终输出
-    final_report = _format_report(report, elapsed)
+    final_report = _format_report(report, elapsed, config.get("finance", {}).get("language", "zh") if is_finance(config) else "zh")
     return final_report, report
 
 
@@ -424,8 +424,18 @@ async def run_research(query: str, config: dict, modules: dict[str, Any]) -> str
     return text
 
 
-def _format_report(report, elapsed: float) -> str:
-    """将 ResearchReport 格式化为 Markdown 文本。"""
+_LABELS = {
+    "zh": dict(title="研究报告：", meta="元信息", conf="置信度", searches="搜索轮数", replans="重规划次数",
+               rounds="对抗轮数", elapsed="总耗时", secs="秒", refs="参考来源", unk="未知标题"),
+    "en": dict(title="Research report: ", meta="Metadata", conf="Confidence", searches="Search calls",
+               replans="Replans", rounds="Adversarial rounds", elapsed="Elapsed", secs="s", refs="References",
+               unk="Untitled"),
+}
+
+
+def _format_report(report, elapsed: float, lang: str = "zh") -> str:
+    """将 ResearchReport 格式化为 Markdown 文本（lang: zh | en；财报场景由 finance.language 决定）。"""
+    L = _LABELS.get(lang, _LABELS["zh"])
     content = report.content or ""
 
     # 统一置信度：如果正文中有 LLM 自评的"整体置信度"，替换为实际计算值，避免不一致
@@ -437,7 +447,7 @@ def _format_report(report, elapsed: float) -> str:
     )
 
     lines = [
-        f"# 研究报告：{report.query}",
+        f"# {L['title']}{report.query}",
         "",
         "---",
         "",
@@ -445,26 +455,27 @@ def _format_report(report, elapsed: float) -> str:
         "",
         "---",
         "",
-        "## 元信息",
+        f"## {L['meta']}",
         "",
-        f"- **置信度**: {report.confidence:.2f}",
-        f"- **搜索轮数**: {report.num_searches}",
-        f"- **重规划次数**: {report.num_replan}",
-        f"- **对抗轮数**: {report.adversarial_rounds}",
-        f"- **总耗时**: {elapsed:.2f} 秒",
+        f"- **{L['conf']}**: {report.confidence:.2f}",
+        f"- **{L['searches']}**: {report.num_searches}",
+        f"- **{L['replans']}**: {report.num_replan}",
+        f"- **{L['rounds']}**: {report.adversarial_rounds}",
+        f"- **{L['elapsed']}**: {elapsed:.2f} {L['secs']}",
         "",
     ]
 
     if report.sources:
-        lines.append("## 参考来源")
+        lines.append(f"## {L['refs']}")
         lines.append("")
         for i, src in enumerate(report.sources, 1):
-            title = src.get("title", "未知标题")
+            title = src.get("title", L["unk"])
             url = src.get("url", "")
-            snippet = src.get("snippet", "")
-            n = src.get("id", i)  # 财报场景：编号 == evidence_id，与正文 [n] 对应
-            snippet = " ".join(snippet.split())[:160]
-            lines.append(f"[{n}] [{title}]({url}) — {snippet}" if "id" in src else f"{i}. [{title}]({url}) — {snippet}")
+            snippet = " ".join(src.get("snippet", "").split())[:160]
+            if "id" in src:  # 财报场景：编号 == evidence_id，与正文 [n] 对应
+                lines.append(f"[{src['id']}] [{title}]({url}) — {snippet}")
+            else:
+                lines.append(f"{i}. [{title}]({url}) — {snippet}")
         lines.append("")
 
     return "\n".join(lines)

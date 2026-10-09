@@ -201,7 +201,7 @@ class TestSuite(unittest.TestCase):
             self.assertEqual(agg["accuracy"]["accuracy"]["value"], 1.0)
             self.assertEqual(agg["citation"]["precision"]["value"], 1.0)
             self.assertEqual(agg["accuracy"]["headline_recall_mean"], 1.0)
-            self.assertIn("引用精度", render_markdown(agg, res))
+            self.assertIn("Citation precision", render_markdown(agg, res))
 
     def test_flags_on_bad_report(self):
         sc = synth_case(CF, 2023, "ACME", "en")

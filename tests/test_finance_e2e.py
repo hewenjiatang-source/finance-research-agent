@@ -105,6 +105,15 @@ class TestFinanceE2E(unittest.TestCase):
             self.assertTrue(side.exists())
             self.assertEqual(json.loads(side.read_text())["schema"], "evidence/v1")
 
+    def test_english_report_labels(self):
+        from src.orchestrator.schemas import ResearchReport
+
+        r = ResearchReport(query="q", content="body [1]", sources=[{"id": 1, "url": "u", "title": "t", "snippet": "s"}], confidence=0.5)
+        md = _format_report(r, 1.0, "en")
+        self.assertIn("## Metadata", md)
+        self.assertIn("## References", md)
+        self.assertIn("[1] [t](u)", md)
+
     def test_researcher_prompt_is_finance_specific(self):
         a = FinanceResearcherAgent("r", ScriptedPolicy(), [t for t in create_sec_tools(SecClient(fetcher=fetcher))])
         p = a._system_prompt()

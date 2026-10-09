@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""财报研究入口：python scripts/run_finance.py "<问题>" [--config configs/finance.yaml]
+"""Finance research entry point: python scripts/run_finance.py "<question>" [--config configs/finance.yaml]
 
-产出 <report>.md 与 <report>.evidence.json（证据侧车文件，供 scripts/run_finance_eval.py 离线评测）。
+Writes <report>.md and <report>.evidence.json (evidence sidecar for offline evaluation by scripts/run_finance_eval.py).
 """
 from __future__ import annotations
 
@@ -17,11 +17,11 @@ from src.core.runner import initialize_modules, load_config, run_research_full, 
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Claude 财报/金融文档研究 Agent")
+    ap = argparse.ArgumentParser(description="Claude-powered financial-filings research agent")
     ap.add_argument("query")
     ap.add_argument("--config", default="configs/finance.yaml")
     ap.add_argument("--output-dir", default="outputs/finance")
-    ap.add_argument("--no-adversarial", action="store_true", help="关闭 Red/Blue 对抗环（省成本）")
+    ap.add_argument("--no-adversarial", action="store_true", help="skip the Red/Blue adversarial loop (cheaper)")
     args = ap.parse_args()
 
     config = load_config(args.config)

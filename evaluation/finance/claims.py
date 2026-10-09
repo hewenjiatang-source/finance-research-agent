@@ -8,7 +8,7 @@ from .numbers import CITE_RE, Mention, extract_mentions, find_cites
 
 __all__ = ["Unit", "parse_report", "strip_boilerplate"]
 
-_TAIL_HEADINGS = re.compile(r"^\s{0,3}#{1,6}\s*(元信息|参考来源|参考文献|references|sources|meta)\b", re.I | re.M)
+_TAIL_HEADINGS = re.compile(r"^\s{0,3}#{1,6}\s*(元信息|参考来源|参考文献|references|sources|metadata|meta)\b", re.I | re.M)
 _TITLE_RE = re.compile(r"^# .*\n", re.M)
 _SENT_END = re.compile(r"(?<=[。！？；])|(?<=[.!?;])(?=\s)")
 _LEAD_CITES = re.compile(r"^\s*((?:\[\d{1,4}\]\s*)+)")

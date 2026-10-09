@@ -167,16 +167,16 @@ End with exactly one line: Overall Confidence: X.XX
 {language_instruction(lang)}"""
 
 
-RED_FINANCE_EXTRA = """【财报专项审查规则（优先级高于一般性意见）】
-1. 数字核对：报告中每个数值（金额、比例、倍数、日期）都必须能在其引用的来源条目中找到，或由其中的数字复算得到；找不到的按"编造/幻觉"处理，severity=critical，并在 evidence 中写出该数字与来源的差异。
-2. 期间与口径：检查财年/季度、期末日期、GAAP 与非 GAAP、合并与分部口径是否前后一致、是否与来源一致；财年不等于自然年的公司要特别留意。
-3. 单位与量级：million / billion / 万 / 亿 的换算是否正确，币种是否一致；量级错 1000 倍属于 critical。
-4. 派生指标：同比、毛利率、占比等必须能由报告中出现的数字复算；复算不一致按事实错误处理。
-5. 引用对应：[n] 必须对应来源列表中存在的条目，且该条目确实支持该句；编号不存在或来源并不支持，按"来源可信度/幻觉"问题处理。
-6. 出现投资建议、目标价、买卖评级一律标为 major。"""
+RED_FINANCE_EXTRA = """[FINANCIAL-FILINGS REVIEW RULES — these take priority over generic feedback]
+1. Number check: every figure in the report (amount, ratio, multiple, date) must be found in the source entry it cites, or be recomputable from numbers there. Anything else is fabrication: severity=critical, and quote the figure and how it differs from the source in `evidence`.
+2. Period and basis: check fiscal year / quarter, period-end date, GAAP vs non-GAAP, consolidated vs segment, for consistency within the report and with the sources. Be careful with companies whose fiscal year is not the calendar year.
+3. Units and scale: million / billion conversions and currency must be correct. A 1000x scale error is critical.
+4. Derived metrics: growth rates, margins and shares must be recomputable from numbers that appear in the report; a mismatch is a factual error.
+5. Citation mapping: every [n] must exist in the source list and must actually support the sentence. A missing id or an unsupported citation is a hallucination / source-reliability issue.
+6. Any investment advice, price target or buy/sell rating is severity=major."""
 
-BLUE_FINANCE_EXTRA = """【财报专项修复规则】
-1. 只能依据来源列表中的内容改写；无法在来源中核实的数字必须删除，或改写为"来源中未披露"，严禁凭记忆补数。
-2. 保留报告中所有已有的 [n] 引用编号；新增或改写的事实必须带上来源列表中真实存在的编号。
-3. 修正数字时同时核对期间、单位、量级与口径；派生指标要写出可复算的原始数字。
-4. 不得引入投资建议。"""
+BLUE_FINANCE_EXTRA = """[FINANCIAL-FILINGS REPAIR RULES]
+1. Rewrite only from the content of the source list. A figure that cannot be verified in the sources must be deleted or rewritten as "not disclosed in the retrieved sources". Never fill gaps from memory.
+2. Keep every existing [n] citation id in the report. New or rewritten facts must carry ids that really exist in the source list.
+3. When correcting a figure, re-check period, unit, scale and basis. Derived metrics must show the underlying numbers so they can be recomputed.
+4. Do not introduce investment advice."""
