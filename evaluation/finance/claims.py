@@ -64,6 +64,22 @@ def _split_clauses(sentence: str) -> list[str]:
     return out
 
 
+_PS_LABEL = re.compile(r"\bEPS\b|per share|per-share|\(\s*\$\s*\)", re.I)
+_MM_LABEL = re.compile(r"\(\s*(?:US)?\$\s*(?:M|mm|mn|millions?)\s*\)|\b(?:in|USD|US\$|\$)\s*millions?\b", re.I)
+
+
+def _apply_label_units(ms: list, label: str) -> None:
+    """A bare table number inherits the unit declared in its row/column label: 'Diluted EPS ($)' -> per share, 'Revenue ($M)' -> millions."""
+    per_share, millions = bool(_PS_LABEL.search(label)), bool(_MM_LABEL.search(label))
+    for m in ms:
+        if m.kind != "plain":
+            continue
+        if per_share and m.decimals == 2:
+            m.kind, m.unit_given = "per_share", True
+        elif millions and not per_share:
+            m.kind, m.scale, m.value, m.unit_given = "money", 1e6, m.value * 1e6, True
+
+
 def _is_table_row(line: str) -> bool:
     return line.count("|") >= 2 and line.strip().startswith("|")
 
@@ -123,6 +139,7 @@ def _table_units(block: list[str], heading: str) -> list[Unit]:
             ms = extract_mentions(clean, sentence=f"{label} | {col} | {clean}")
             if not ms:
                 continue
+            _apply_label_units(ms, f"{label} {col}")
             u = Unit(f"{label} | {col} | {clean}", cites, ms, table=True, row=label, col=col, heading=heading)
             out.append(u)
     return out

@@ -353,6 +353,8 @@ def check_accuracy(mentions: list[Mention], gold: Gold) -> list[AccuracyRecord]:
         if table:
             hits = _metric_hits(m.row)
             metric = hits[0][2] if hits and _qualified(m.row, hits[0][0], gold.aliases) else None
+            if re.search(r"non-?\s?GAAP|adjusted|managed basis|managed,|pro forma|excluding|ex-", m.row, re.I):
+                metric = None  # a non-GAAP / adjusted variant is not the XBRL concept
             m_beg = m_end = None
         else:
             metric, m_beg, m_end = _pick_metric(ctx_text, m, gold, allow_after=m.kind != "percent")
