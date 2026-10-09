@@ -12,6 +12,44 @@
 
 ---
 
+## 🏦 Finance Edition：财报 / 金融文档研究（本分支）
+
+基于上游 [qiqihezh/deepresearch-agent](https://github.com/qiqihezh/deepresearch-agent)（MIT）改造：**LLM 换成 Claude**，场景换成**财报研究**，并新增**引用核对 + 数据准确性**自研评测。
+
+```bash
+cp .env.template .env        # 填 ANTHROPIC_API_KEY、SEC_USER_AGENT（"Your Name you@example.com"）、搜索 Key
+python scripts/run_finance.py "对比苹果 FY2023 与 FY2022 的营收、净利润和稀释 EPS，并概括主要驱动因素"
+# 产出 outputs/finance/report_*.md 以及 report_*.evidence.json（证据侧车文件）
+```
+
+**改了什么**
+
+| 方面 | 做法 |
+|---|---|
+| Claude 后端 | `src/models/claude_policy.py`：OpenAI 风格消息 ↔ Claude Messages API（tool_use/tool_result 配对修复、thinking 块回传、重试、>16K 输出自动流式）。`configs/default.yaml` 默认 `backend: claude`，各模块可单独指定模型（compressor 用 haiku，judge 可用 opus）。 |
+| 取数工具 | `src/tools/sec_edgar.py`：`sec_filings`（申报索引）、`sec_facts`（XBRL 结构化数值，含期间/表格/申报号溯源）、`sec_filing`（10-K/10-Q 章节与关键词窗口）。数字优先走结构化数据而不是让模型从 HTML 里"读"。 |
+| 证据账本 | `src/finance/evidence.py`：每次工具调用即登记原文并返回稳定的 `evidence_id`；研究员 → 合成器 → Red/Blue → 评测全程共用同一套 `[n]`。 |
+| Agent/Prompt | `src/finance/{agents,prompts}.py`：禁止凭记忆补数、数字须带期间与口径、派生数必须走 calculator、查不到写"未检索到"。 |
+| 框架修复 | Red/Blue 原先只看报告前 4000 字，且 Blue 会用截断版覆盖全文；现可配置送审长度，并把修复结果与未送审的尾部拼回。 |
+
+**评测（`evaluation/finance/`，`python scripts/run_finance_eval.py`）**
+
+1. **引用核对**：悬空编号 / 被引来源不含该数字（misattributed、unsupported）/ 无引用数字是否有据；子句级归因。
+2. **数据准确性**：数字归一（million/billion/亿）后按"写出的精度"与 XBRL 金标准比较，错误归类为 scale / period / metric / sign / imprecise / wrong_value；同比与毛利率等派生数由金标准复算。
+3. **评测器自检（元评测）**：对金标准生成的干净报告注入 9 类已知错误，报告检出率、归类正确率与误报率；`--meta-only` 即可离线运行。
+4. 可选 **LLM 判官**（`--judge`）：只审非数字断言的蕴含，带缓存，不并入硬指标。
+
+用例：`scripts/build_finance_cases.py` 从 `watchlist.yaml` + SEC companyfacts 生成带金标准的 `real_cases.json`；`--run` 让 Agent 跑完并评测，或对已有报告目录离线评测。
+
+**已验证 / 未验证（诚实说明）**
+
+- 已验证（离线，`python -m unittest tests.test_claude_policy tests.test_finance_tools tests.test_finance_e2e tests.test_finance_eval`，72 项）：Claude 消息/工具转换、XBRL 选期（含 10-K/A、累计季度陷阱）、SEC 工具、证据账本、整条流水线（假模型 + 合成 SEC 夹具）、评测各层与元评测。
+- **未验证**：真实 Anthropic API 调用、真实 EDGAR 联网、LLM 判官效果——开发环境没有 API Key 且无法访问 data.sec.gov。夹具里的 Acme Corp 是**虚构公司**。首次使用请先对 1–2 家公司人工抽查。
+- 元评测的注入错误是人造的、句式规整，检出率是评测器的上界；逗号并列子句共享一个引用时，"漏引"无法判定（元评测里该项仅约 50%）。
+- 数字→(指标, 期间) 映射是启发式，映射不了的计入"未映射"而非"正确"；MD&A 分部数据、非 GAAP、指引、日期尚不在自动核对范围；港股/A 股只能走 web_search，没有结构化金标准。
+
+---
+
 ## 📖 项目背景
 
 大语言模型在单一问答场景表现优异，但在**复杂深度研究任务**中面临三个核心挑战：
@@ -157,8 +195,8 @@ source .venv/bin/activate
 pip install -r requirements.txt
 
 # 4. 配置 API Key（复制模板后填入）
-cp .env.example .env
-# 编辑 .env：填入 DEEPSEEK_API_KEY、BOCHA_API_KEY 等
+cp .env.template .env
+# 编辑 .env：填入 ANTHROPIC_API_KEY、BOCHA_API_KEY 等（DeepSeek/vLLM 仍可作为备选后端）
 ```
 
 ### 三种运行方式

@@ -1,0 +1,56 @@
+{
+ "cases": [
+  {
+   "id": "acme-fy2023",
+   "query": "Compare Acme FY2023 vs FY2022 revenue, net income and EPS",
+   "ticker": "ACME",
+   "company": "Acme Corp",
+   "fiscal_year": 2023,
+   "headline": [
+    "revenue",
+    "net_income",
+    "eps_diluted"
+   ],
+   "aliases": [
+    "ACME",
+    "Acme Corp"
+   ],
+   "gold": {
+    "FY2023": {
+     "revenue": 48250000000.0,
+     "gross_profit": 21100000000.0,
+     "operating_income": 9870000000.0,
+     "net_income": 7425000000.0,
+     "eps_diluted": 3.71,
+     "rd_expense": 4120000000.0,
+     "operating_cash_flow": 10600000000.0,
+     "capex": 2150000000.0,
+     "total_assets": 91300000000.0,
+     "total_liabilities": 55200000000.0,
+     "stockholders_equity": 36100000000.0,
+     "cash_and_equivalents": 14800000000.0,
+     "diluted_shares": 2001000000.0
+    },
+    "FY2022": {
+     "revenue": 44600000000.0,
+     "gross_profit": 19050000000.0,
+     "operating_income": 8720000000.0,
+     "net_income": 6610000000.0,
+     "eps_diluted": 3.28,
+     "rd_expense": 3760000000.0,
+     "operating_cash_flow": 9400000000.0,
+     "capex": 1980000000.0,
+     "total_assets": 85700000000.0,
+     "total_liabilities": 53100000000.0,
+     "stockholders_equity": 32600000000.0,
+     "cash_and_equivalents": 12900000000.0,
+     "diluted_shares": 2015000000.0
+    }
+   },
+   "period_ends": {
+    "FY2023": "2023-09-30",
+    "FY2022": "2022-09-30"
+   }
+  }
+ ]
+}

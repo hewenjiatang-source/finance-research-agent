@@ -1,0 +1,10 @@
+# build_finance_cases.py 的输入：公司 + 财年 + 问题。金标准在构建时从 SEC companyfacts 取 XBRL 数值写入用例文件。
+# 财年以申报文件里的 fy 为准（Apple 的 FY2023 止于 2023-09-30）。
+- {id: aapl-fy2023, ticker: AAPL, fiscal_year: 2023, aliases: [Apple, 苹果],
+   query: "对比苹果公司 FY2023 与 FY2022 的营收、净利润和稀释每股收益，并概括管理层讨论中的主要驱动因素"}
+- {id: msft-fy2023, ticker: MSFT, fiscal_year: 2023, aliases: [Microsoft, 微软],
+   query: "Summarize Microsoft's FY2023 revenue, operating income and net income versus FY2022, with the main drivers cited from the 10-K"}
+- {id: nvda-fy2024, ticker: NVDA, fiscal_year: 2024, aliases: [NVIDIA, 英伟达],
+   query: "英伟达 FY2024 的营收、毛利和净利润同比变化是多少？数据中心业务贡献如何？"}
+- {id: amzn-fy2023, ticker: AMZN, fiscal_year: 2023, aliases: [Amazon, 亚马逊],
+   query: "Amazon FY2023 net sales, operating income, net income and operating cash flow compared with FY2022"}
